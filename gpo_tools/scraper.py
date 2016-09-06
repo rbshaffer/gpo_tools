@@ -1,5 +1,10 @@
 __author__ = 'rbshaffer'
 
+import os
+import re
+import json
+from urllib2 import urlopen
+from bs4 import BeautifulSoup
 
 class GPOScraper:
     def __init__(self, pwd):
@@ -14,24 +19,17 @@ class GPOScraper:
         # Container for processed links. Links that are placed here are not followed or searched again.
         self.searched = []
 
-        # Separator character for file paths.
-        self.slash = self._syschar()
-
-    def extract_nav_elements(self, url_element):
+    def extract_nav(self, url_element):
         """ Helper function - grabs all unobserved links out of a given HTML element. """
-
-        import re
-        import urllib2
-        from bs4 import BeautifulSoup
 
         url = 'http://www.gpo.gov' + re.search('(?<=\').*?(?=\')', url_element.get('onclick')).group(0)
 
         if url not in self.searched:
-            page = urllib2.urlopen('http://www.gpo.gov' + re.search('(?<=\').*?(?=\')',
-                                                                    url_element.get('onclick')).group(0))
+            page = urlopen('http://www.gpo.gov' + re.search('(?<=\').*?(?=\')', url_element.get('onclick')).group(0))
             soup = BeautifulSoup(page.read())
             elements = [l for l in soup.find_all('a') if l.get('onclick') is not None]
             self.searched.append(url)
+
             return elements
         else:
             return []
@@ -39,49 +37,43 @@ class GPOScraper:
     def save_data(self, url):
         """ Dumps scraped text and metadata to the appropriate location in the document file structure. """
 
-        import os
-        import json
-        import urllib2
-        from bs4 import BeautifulSoup
-
-        page = urllib2.urlopen(url)
+        page = urlopen(url)
         soup = BeautifulSoup(page.read())
 
         meta_link = [l.get('href') for l in soup.find_all('a') if l.string == 'MODS'][0]
         transcript_link = [l.get('href') for l in soup.find_all('a') if l.string == 'Text'][0]
-        transcript = urllib2.urlopen(transcript_link).read()
+        transcript = urlopen(transcript_link).read()
 
-        meta_page = urllib2.urlopen(meta_link)
+        meta_page = urlopen(meta_link)
         meta_soup = BeautifulSoup(meta_page.read())
 
         # Metadata is divided into three pieces: hearing info, member info, and witness info.
         # See functions for details on each of these metadata elements.
-        hearing_meta = {'Hearing Info': self._extract_hearing_info(meta_soup),
-                        'Member Info': self._extract_member_info(meta_soup),
-                        'Witness Info': self._extract_witness_info(meta_soup)}
+        hearing_meta = {'Hearing Info': self._extract_doc_meta(meta_soup),
+                        'Member Info': self._extract_member_meta(meta_soup),
+                        'Witness Info': self._extract_witness_meta(meta_soup)}
 
         congress = hearing_meta['Hearing Info']['Congress']
         committee = hearing_meta['Hearing Info']['Committee']
         identifier = hearing_meta['Hearing Info']['Identifier']
 
         # Output file structure is organized by congress, committee, and finally hearing identifier
-        out_path = self.pwd + congress + self.slash + committee[0] + self.slash + identifier
+        out_path = self.pwd + congress + os.sep + committee[0] + os.sep + identifier
 
         # For each hearing, a transcript and a metadata file is saved.
         if os.path.exists(out_path) is False:
             os.makedirs(out_path)
-            with open(out_path + self.slash + identifier + '.html', 'wb') as f:
+            with open(out_path + os.sep + identifier + '.html', 'wb') as f:
                 f.write(transcript)
 
-            with open(out_path + self.slash + identifier + '.json', 'wb') as f:
+            with open(out_path + os.sep + identifier + '.json', 'wb') as f:
                 f.write(json.dumps(hearing_meta))
 
-    def _extract_hearing_info(self, meta_html):
+    @staticmethod
+    def _extract_doc_meta(meta_html):
         """
-
         Function to extract hearing metadata from the metadata file. Program searches through the HTML metadata and
         locates various features, and combines them into a json object.
-
         """
 
         def locate_string(key, name=False):
@@ -136,8 +128,8 @@ class GPOScraper:
         return meta_dictionary
 
     @staticmethod
-    def _extract_member_info(meta_html):
-        """ Function to extract member metadata from the metadata file. Note that this information is often missing. """
+    def _extract_member_meta(meta_html):
+        """ Function to extract member metadata from the metadata file. Note that this information is often absent. """
         import re
 
         member_dictionary = {}
@@ -162,58 +154,9 @@ class GPOScraper:
         return member_dictionary
 
     @staticmethod
-    def _extract_witness_info(meta_html):
+    def _extract_witness_meta(meta_html):
         """ Function to extract witness metadata from the metadata file. Note that this information is often absent. """
 
         witness_list = [w.string for w in meta_html.find_all('witness') if w.string is not None]
 
         return witness_list
-
-    @staticmethod
-    def _syschar():
-        """ Helper function, which returns the appropriate slash character for the native operating system. """
-        import sys
-
-        if sys.platform in ['win32', 'cygwin']:
-            return '\\'
-        else:
-            return '/'
-
-
-import re
-import urllib2
-from bs4 import BeautifulSoup
-
-
-# Initialize the scraper with the first set of links from the GPO home page.
-working_dir = '/home/rbshaffer/Desktop/scraped_hearings/'
-
-scraper = GPOScraper(working_dir)
-initialize = [link for link in BeautifulSoup(urllib2.urlopen('http://www.gpo.gov/fdsys/browse/' +
-                                                             'collection.action?collectionCode=CHRG')).find_all('a')
-              if link.get('onclick') is not None]
-
-# Starting with initial values, keep looping over the GPO page until every link has been explored.
-# For each page, check to see if there's a metadata link. If so, scrape it; else, grab the nav elements in the page.
-
-new_links = initialize
-while True:
-    old_links = new_links
-    new_links = []
-
-    if old_links != []:
-        for link in old_links:
-            print link.get('onclick')
-            if link.get('onclick') is not None and 'Browse More Information' in link.get('onclick'):
-
-                meta_url = 'http://www.gpo.gov/fdsys/search/pagedetails.action?' + \
-                    re.search('browsePath.*?(?=\')', link.get('onclick')).group(0)
-
-                if meta_url not in scraper.searched:
-                    scraper.save_data(meta_url)
-                    scraper.searched.append(meta_url)
-
-            elif link.string is None:
-                new_links += scraper.extract_nav_elements(link)
-    else:
-        break

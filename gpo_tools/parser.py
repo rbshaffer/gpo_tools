@@ -1,11 +1,10 @@
 __author__ = 'rbshaffer'
 
+import os
 
 class BuildDatabase:
     def __init__(self, pwd):
         """ Base class for constructing the financial hearings dataset. """
-        import os
-
         # slash separator character, which depends on system
         self.slash = self._syschar()
 

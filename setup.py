@@ -4,6 +4,7 @@ setup(
     name='gpo_tools',
     version='1.0',
     packages=['gpo_tools'],
+    requires=['bs4'],
     url='',
     license='MIT',
     author='Robert Shaffer',
