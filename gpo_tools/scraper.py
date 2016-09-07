@@ -6,11 +6,11 @@ import json
 from urllib2 import urlopen
 from bs4 import BeautifulSoup
 
-class GPOScraper:
+class GPOManager:
     def __init__(self, pwd):
         """
-        Scraping script, developed for the GPO's congressional hearings collection. Scrapes hearing text and
-        metadata (where available).
+        GPO data manager class, developed for the GPO's congressional hearings collection. Scrapes hearing text and
+        metadata (where available), and saves to a local file structure.
         """
 
         # Working directory where files will be saved.
@@ -19,7 +19,38 @@ class GPOScraper:
         # Container for processed links. Links that are placed here are not followed or searched again.
         self.searched = []
 
-    def extract_nav(self, url_element):
+    def scrape(self):
+        """
+        Scrape data from the GPO website. Loops through the website until all links are exhausted.
+        """
+
+        initial_link = 'http://www.gpo.gov/fdsys/browse/collection.action?collectionCode=CHRG'
+
+        new_links = [link for link in BeautifulSoup(urlopen(initial_link)).find_all('a')
+                     if link.get('onclick') is not None]
+
+        while True:
+            old_links = new_links
+            new_links = []
+
+            if old_links is not []:
+                for link in old_links:
+                    print link.get('onclick')
+                    if link.get('onclick') is not None and 'Browse More Information' in link.get('onclick'):
+
+                        meta_url = 'http://www.gpo.gov/fdsys/search/pagedetails.action?' + \
+                            re.search('browsePath.*?(?=\')', link.get('onclick')).group(0)
+
+                        if meta_url not in self.searched:
+                            self._save_data(meta_url)
+                            self.searched.append(meta_url)
+
+                    elif link.string is None:
+                        new_links += self._extract_nav(link)
+            else:
+                break
+
+    def _extract_nav(self, url_element):
         """ Helper function - grabs all unobserved links out of a given HTML element. """
 
         url = 'http://www.gpo.gov' + re.search('(?<=\').*?(?=\')', url_element.get('onclick')).group(0)
@@ -34,7 +65,7 @@ class GPOScraper:
         else:
             return []
 
-    def save_data(self, url):
+    def _save_data(self, url):
         """ Dumps scraped text and metadata to the appropriate location in the document file structure. """
 
         page = urlopen(url)
