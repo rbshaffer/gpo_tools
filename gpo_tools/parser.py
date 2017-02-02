@@ -1,17 +1,15 @@
-__author__ = 'rbshaffer'
-
 import os
+
 
 class BuildDatabase:
     def __init__(self, pwd):
         """ Base class for constructing the financial hearings dataset. """
         # slash separator character, which depends on system
-        self.slash = self._syschar()
 
         # path to working directory (where inputs will be stored).
         # Assumed to be created by gpo_scraper.py, with appropriate file structure. See that file for details.
         self.pwd = pwd
-        self.gpo_walked = list(os.walk(self.pwd + self.slash + 'scraped_hearings'))
+        self.gpo_walked = list(os.walk(self.pwd + os.sep + 'scraped_hearings'))
         self.results = []
 
     def parse_gpo_hearings(self):
@@ -37,7 +35,7 @@ class BuildDatabase:
             with open(json_path, 'rb') as file_object:
                 hearing_table = json.loads(file_object.read())
 
-            out = ParseHearing(content, member_table, hearing_table, committee_table).parsed
+            out = ParseHearing(content, hearing_table, member_table, committee_table).parsed
 
             # Write the output. Returned value records whether the file was actually parsed.
             if out is not None:
@@ -51,17 +49,17 @@ class BuildDatabase:
         # Update metadata tables
         self._update_tables()
 
-        gpo_file_list = list(chain(*[[direc[0] + self.slash + fi for fi in direc[2] if 'htm' in fi]
+        gpo_file_list = list(chain(*[[direc[0] + os.sep + fi for fi in direc[2] if 'htm' in fi]
                              for direc in self.gpo_walked]))
 
         # Get data from metadata tables. Member data is drawn from the member_table.json file, which is created and
         # updated with the _update_tables() method and its subfunctions. Committee data is drawn from the
         # committee_data.csv file, which is a hand-created mapping between Stewart's committee codes and committee names
         # as saved in the dataset.
-        with open(self.pwd + self.slash + 'member_table.json', 'rb') as f:
+        with open(self.pwd + os.sep + 'member_table.json', 'rb') as f:
             member_table = json.loads(f.read())
 
-        with open(self.pwd + self.slash + 'committee_data.csv', 'rb') as f:
+        with open(self.pwd + os.sep + 'committee_data.csv', 'rb') as f:
             committee_table = {row[0]: {'Code': row[1], 'Chamber': row[2]} for row in csv.reader(f)}
 
         self.results = [r for r in pprocess.pmap(parse, gpo_file_list, limit=5)]
@@ -85,10 +83,10 @@ class BuildDatabase:
         from itertools import chain
 
         # Get the current tables
-        sudoc_table = self._get_current_data(self.pwd + self.slash + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + self.slash + 'jacket_table.json')
+        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
+        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
 
-        gpo_file_list = list(chain(*[[direc[0] + self.slash + fi for fi in direc[2] if 'json' in fi]
+        gpo_file_list = list(chain(*[[direc[0] + os.sep + fi for fi in direc[2] if 'json' in fi]
                                      for direc in self.gpo_walked]))
 
         for i, file_name in enumerate(gpo_file_list):
@@ -109,10 +107,10 @@ class BuildDatabase:
                         sudoc_table[sudoc_number] = {'jacket': jacket}
                         jacket_table[jacket] = {'sudoc': sudoc_number}
 
-        with open(self.pwd + self.slash + 'sudoc_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
             f.write(json.dumps(sudoc_table))
 
-        with open(self.pwd + self.slash + 'jacket_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
             f.write(json.dumps(jacket_table))
 
     def _update_member_table(self):
@@ -183,15 +181,15 @@ class BuildDatabase:
         member_table = {}
 
         # Loop through the house and senate assignment files, and save the output.
-        with open(self.pwd + self.slash + 'house_assignments.csv', 'rb') as f:
+        with open(self.pwd + os.sep + 'house_assignments.csv', 'rb') as f:
             house_inputs = list(csv.reader(f))[2:]
-        with open(self.pwd + self.slash + 'senate_assignments.csv', 'rb') as f:
+        with open(self.pwd + os.sep + 'senate_assignments.csv', 'rb') as f:
             senate_inputs = list(csv.reader(f))[2:]
 
         update(house_inputs, member_table, 'HOUSE')
         update(senate_inputs, member_table, 'SENATE')
 
-        with open(self.pwd + self.slash + 'member_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'member_table.json', 'wb') as f:
             f.write(json.dumps(member_table))
 
     def _manual_hearing_table_update(self):
@@ -204,12 +202,12 @@ class BuildDatabase:
         import csv
         import json
 
-        with open(self.pwd + self.slash + 'manual_sudoc_table.csv') as f:
+        with open(self.pwd + os.sep + 'manual_sudoc_table.csv') as f:
             manual_table = list(csv.reader(f))[1:]
 
-        sudoc_table = self._get_current_data(self.pwd + self.slash + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + self.slash + 'jacket_table.json')
-        cis_number_table = self._get_current_data(self.pwd + self.slash + 'cis_number_table.json')
+        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
+        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
+        cis_number_table = self._get_current_data(self.pwd + os.sep + 'cis_number_table.json')
 
         for row in manual_table:
             cis_number = row[0]
@@ -222,13 +220,13 @@ class BuildDatabase:
                 sudoc_table[sudoc_number] = {'CIS': cis_number, 'jacket': jacket, 'PAP_Code': pap_code}
                 cis_number_table[cis_number] = {'sudoc': sudoc_number, 'jacket': jacket, 'PAP_Code': pap_code}
 
-        with open(self.pwd + self.slash + 'sudoc_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
             f.write(json.dumps(sudoc_table))
 
-        with open(self.pwd + self.slash + 'jacket_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
             f.write(json.dumps(jacket_table))
 
-        with open(self.pwd + self.slash + 'cis_number_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'cis_number_table.json', 'wb') as f:
             f.write(json.dumps(cis_number_table))
 
     def create_dataset(self, jackets_dates=(), types_dates=(), committee_list=(),
@@ -260,10 +258,10 @@ class BuildDatabase:
         stopwords = stopwords.words('english')
 
         # Get the list of available files, and some preliminary data ready for metadata extraction
-        file_list = list(chain(*[[direc[0] + self.slash + fi for fi in direc[2] if 'csv' in fi]
+        file_list = list(chain(*[[direc[0] + os.sep + fi for fi in direc[2] if 'csv' in fi]
                                  for direc in self.gpo_walked]))
 
-        with open(self.pwd + self.slash + 'committee_data.csv', 'rb') as f:
+        with open(self.pwd + os.sep + 'committee_data.csv', 'rb') as f:
             committee_table = {row[0]: {'Code': row[1], 'Chamber': row[2]} for row in csv.reader(f)}
 
         today = datetime.now().strftime('%m%d%Y')
@@ -273,7 +271,7 @@ class BuildDatabase:
         else:
             jackets_to_parse = ()
 
-        with open(self.pwd + self.slash + 'cis_number_table.json', 'rb') as f:
+        with open(self.pwd + os.sep + 'cis_number_table.json', 'rb') as f:
             cis_table = json.loads(f.read())
             jackets = [cis_table[k]['jacket'] for k in cis_table]
             pap_codes = [cis_table[k]['PAP_Code'] for k in cis_table]
@@ -363,13 +361,13 @@ class BuildDatabase:
                 bow_list.append(bow)
 
         # Save outputs.
-        with open(self.pwd + self.slash + 'corpus_' + today + '.csv', 'wb') as f:
+        with open(self.pwd + os.sep + 'corpus_' + today + '.csv', 'wb') as f:
             csv.writer(f).writerows(corpus)
-        with open(self.pwd + self.slash + 'corpus_index_' + today + '.csv', 'wb') as f:
+        with open(self.pwd + os.sep + 'corpus_index_' + today + '.csv', 'wb') as f:
             csv.writer(f).writerows(keep)
 
-        corpora.Dictionary.save(dic, self.pwd + self.slash + out_name + '_' + today + '.lda-c.dic')
-        corpora.BleiCorpus.serialize(fname=self.pwd + self.slash + out_name + '_' + today + '.lda-c',
+        corpora.Dictionary.save(dic, self.pwd + os.sep + out_name + '_' + today + '.lda-c.dic')
+        corpora.BleiCorpus.serialize(fname=self.pwd + os.sep + out_name + '_' + today + '.lda-c',
                                      corpus=bow_list, id2word=dic)
 
     def update_tables_from_file(self, data_path):
@@ -384,9 +382,9 @@ class BuildDatabase:
         import csv
         import json
 
-        sudoc_table = self._get_current_data(self.pwd + self.slash + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + self.slash + 'jacket_table.json')
-        cis_number_table = self._get_current_data(self.pwd + self.slash + 'cis_number_table.json')
+        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
+        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
+        cis_number_table = self._get_current_data(self.pwd + os.sep + 'cis_number_table.json')
 
         with open(data_path, 'rb') as f:
             content = list(csv.reader(f))
@@ -402,10 +400,10 @@ class BuildDatabase:
             jacket_table[jacket_number] = {'sudoc': sudoc_number, 'CIS': cis_number, 'PAP_Code': pap_code}
             sudoc_table[sudoc_number] = {'CIS': cis_number, 'jacket': jacket_number, 'PAP_Code': pap_code}
 
-        with open(self.pwd + self.slash + 'sudoc_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
             f.write(json.dumps(sudoc_table))
 
-        with open(self.pwd + self.slash + 'jacket_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
             f.write(json.dumps(jacket_table))
 
         with open(self.pwd + self.slash + 'cis_number_table.json', 'wb') as f:
@@ -444,7 +442,7 @@ class BuildDatabase:
 
 
 class ParseHearing:
-    def __init__(self, hearing_text, member_data, hearing_data, committee_data):
+    def __init__(self, hearing_text, hearing_data, member_data=None, committee_data=None):
         """
 
         Class for parsing hearings. This class is not intended to be called directly; rather, it is only meant to be
@@ -464,17 +462,25 @@ class ParseHearing:
                                         text).start()]
             return text
 
-        self.member_data = member_data
+        if member_data:
+            self.member_data = member_data
+        else:
+            self.member_data = {}
+
+        if committee_data:
+            self.committee_data = committee_data
+        else:
+            self.committee_data = {}
+
         self.hearing_data = hearing_data
-        self.committee_data = committee_data
         self.hearing_text = clean_hearing(hearing_text)
 
         # List of speaker prefixes. These are important for identifying the beginning and end of each statement.
         self.prefixes = ['Mr.', 'Mrs.', 'Ms.', 'Mr', 'Mrs', 'Ms', 'Chairman', 'Chairwoman', 'Dr.', 'Dr', 'Senator',
                          'Secretary', 'Director', 'Representative', 'Vice Chairman', 'Vice Chair', 'Admiral', 'General',
-                         'Gen.', 'Judge', 'Commissioner', 'Lieutenant', 'Lt.', 'Trustee', 'Sergeant', 'Major', 'Colonel',
-                         'Captain', 'Capt.', 'Commander', 'Specialist', 'Voice', 'The Chairman', 'The Chairwoman',
-                         'Governor', 'Chair', 'The Clerk', 'Clerk', 'Mayor']
+                         'Gen.', 'Judge', 'Commissioner', 'Lieutenant', 'Lt.', 'Trustee', 'Sergeant', 'Major',
+                         'Colonel', 'Captain', 'Capt.', 'Commander', 'Specialist', 'Voice', 'The Chairman',
+                         'The Chairwoman', 'Governor', 'Chair', 'The Clerk', 'Clerk', 'Mayor', 'Reverend', 'Justice']
 
         # Constant for performance. Limits how far forward (number of characters) the script will search in order to
         # find certain pieces of information, such as the name of the chair of the committee.
@@ -624,9 +630,9 @@ class ParseHearing:
             statements, and some procedural text.
 
             """
-            s = re.search('([\[\(].*?[\r\n]*.*?(prepared|opening)\s+statement.*?[\r\n]*.*?[\]\)]|' +
-                          '[\[\(].*?[\r\n]*.*?following.*?(was|were).*?[\r\n]*.*?[\r\n]*.*?[\]\)]|' +
-                          '[\[\(].*?[\r\n]*.*?follows?[\.:].*?[\r\n]*[^<]*?[\]\)])' +
+            s = re.search('(\[\(.*?[\r\n]*.*?(prepared|opening)\s+statement.*?[\r\n]*.*?\]\)|' +
+                          '\[\(.*?[\r\n]*.*?following.*?(was|were).*?[\r\n]*.*?[\r\n]*.*?\]\)|' +
+                          '\[\(.*?[\r\n]*.*?follows?\.:.*?[\r\n]*[^<]*?\]\))' +
                           '(?!\s+[<|\[]GRAPHIC)',
                           string, re.I)
             if s is not None:
@@ -643,7 +649,7 @@ class ParseHearing:
             members.
 
             """
-            results = re.finditer('    (Members |Also )?(present[^\.]*?:)([^\.]+)',
+            results = re.finditer('    (Members |Also )?(present[^.]*?:)([^.]+)',
                                   self.hearing_text[0:self.max_search_length], flags=re.I)
             out = []
             for result in results:
@@ -674,18 +680,18 @@ class ParseHearing:
                 return None
 
         states_long = [u'alabama', u'alaska', u'arizona', u'arkansas', u'california', u'colorado', u'connecticut',
-                  u'delaware', u'district of columbia', u'florida', u'georgia', u'hawaii', u'idaho', u'illinois',
-                  u'indiana', u'iowa', u'kansas', u'kentucky', u'louisiana', u'maine', u'maryland', u'massachusetts',
-                  u'michigan', u'minnesota', u'mississippi', u'missouri', u'montana', u'nebraska', u'nevada',
-                  u'new hampshire', u'new jersey', u'new mexico', u'new york', u'north carolina', u'north dakota',
-                  u'ohio', u'oklahoma', u'oregon', u'pennsylvania', u'rhode island', u'south carolina', u'south dakota',
-                  u'tennessee', u'texas', u'utah', u'vermont', u'virginia', u'washington', u'west virginia',
-                  u'wisconsin', u'wyoming']
+                       u'delaware', u'district of columbia', u'florida', u'georgia', u'hawaii', u'idaho', u'illinois',
+                       u'indiana', u'iowa', u'kansas', u'kentucky', u'louisiana', u'maine', u'maryland',
+                       u'massachusetts', u'michigan', u'minnesota', u'mississippi', u'missouri', u'montana',
+                       u'nebraska', u'nevada', u'new hampshire', u'new jersey', u'new mexico', u'new york',
+                       u'north carolina', u'north dakota', u'ohio', u'oklahoma', u'oregon', u'pennsylvania',
+                       u'rhode island', u'south carolina', u'south dakota', u'tennessee', u'texas', u'utah', u'vermont',
+                       u'virginia', u'washington', u'west virginia', u'wisconsin', u'wyoming']
 
         states_abbrev = [u'AL', u'AK', u'AZ', u'AR', u'CA', u'CO', u'CT', u'DE', u'DC', u'FL', u'GA', u'HI', u'ID',
-                        u'IL', u'IN', u'IA', u'KS', u'KY', u'LA', u'ME', u'MD', u'MA', u'MI', u'MN', u'MS', u'MO',
-                        u'MT', u'NE', u'NV', u'NH', u'NJ', u'NM', u'NY', u'NC', u'ND', u'OH', u'OK', u'OR', u'PA',
-                        u'RI', u'SC', u'SD', u'TN', u'TX', u'UT', u'VT', u'VA', u'WA', u'WV', u'WI', u'WY']
+                         u'IL', u'IN', u'IA', u'KS', u'KY', u'LA', u'ME', u'MD', u'MA', u'MI', u'MN', u'MS', u'MO',
+                         u'MT', u'NE', u'NV', u'NH', u'NJ', u'NM', u'NY', u'NC', u'ND', u'OH', u'OK', u'OR', u'PA',
+                         u'RI', u'SC', u'SD', u'TN', u'TX', u'UT', u'VT', u'VA', u'WA', u'WV', u'WI', u'WY']
 
         output = []
         chair = find_chair()
@@ -703,7 +709,7 @@ class ParseHearing:
                 # Grab the name, and strip state names and editorial marks if present
                 name = self.hearing_text[cut[0]:cut[1]]
                 name = re.sub('\s*\[[a-z ]*?\]\s*', '', name)
-                state_matches = [s for s in states_long if s in name.lower()]
+                state_matches = [st for st in states_long if st in name.lower()]
                 if len(state_matches) == 1:
                     state = state_matches[0]
                     name = re.sub(' of ' + state, '', name, flags=re.I)
@@ -812,8 +818,8 @@ class ParseHearing:
                     if len(rep_list) == 1:
                         try:
                             name_line = re.search('.* ' + name_last + '[ ,.].*|^' + name_last + '[ ,.].*',
-                                              self.hearing_text[:self.statement_cutpoints[0][0]],
-                                              flags=re.I|re.M).group(0).strip()
+                                                  self.hearing_text[:self.statement_cutpoints[0][0]],
+                                                  flags=re.I | re.M).group(0).strip()
                             first_word = re.search('^[^\s]*', name_line).group(0)
                             if first_word in ['Representative ', 'Senator '] or 'Representative in Congress' in \
                                     name_line or 'U.S. Senator' in name_line:
@@ -873,29 +879,29 @@ class ParseHearing:
 
         return output
 
-
-import csv
-from datetime import datetime
-
-start = datetime.now()
-print start
-
-with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/manual_sudoc_table.csv', 'rb') as f:
-    manual_sudoc_table = list(csv.reader(f))
-    jackets_dates = zip(zip(*manual_sudoc_table)[0], zip(*manual_sudoc_table)[3])
-
-with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/dates and hearing types.csv', 'rb') as f:
-    types_dates = list(csv.reader(f))
-    types_dates = [[row[0]] + row[2:5] for row in types_dates]
-
-
-build = BuildDatabase('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data')
-# build.parse_gpo_hearings()
-# results = build.results
-# build.create_dataset(jackets_dates, types_dates)
-build.create_dataset(committee_list=('196', '156', '251'),
-                     out_name='comparing_committees',
-                     min_words=50)
-print 'dataset created'
-
-print datetime.now() - start
+#
+# import csv
+# from datetime import datetime
+#
+# start = datetime.now()
+# print start
+#
+# with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/manual_sudoc_table.csv', 'rb') as f:
+#     manual_sudoc_table = list(csv.reader(f))
+#     jackets_dates = zip(zip(*manual_sudoc_table)[0], zip(*manual_sudoc_table)[3])
+#
+# with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/dates and hearing types.csv', 'rb') as f:
+#     types_dates = list(csv.reader(f))
+#     types_dates = [[row[0]] + row[2:5] for row in types_dates]
+#
+#
+# build = BuildDatabase('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data')
+# # build.parse_gpo_hearings()
+# # results = build.results
+# # build.create_dataset(jackets_dates, types_dates)
+# build.create_dataset(committee_list=('196', '156', '251'),
+#                      out_name='comparing_committees',
+#                      min_words=50)
+# print 'dataset created'
+#
+# print datetime.now() - start

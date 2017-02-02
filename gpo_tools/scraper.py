@@ -1,10 +1,9 @@
-__author__ = 'rbshaffer'
-
 import os
 import re
 import json
 from urllib2 import urlopen
 from bs4 import BeautifulSoup
+
 
 class GPOManager:
     def __init__(self, pwd):
@@ -18,6 +17,13 @@ class GPOManager:
 
         # Container for processed links. Links that are placed here are not followed or searched again.
         self.searched = []
+
+        file_names = [os.path.join(dir_path, name) for dir_path, dir_names, name in os.walk(pwd) if 'json' in name]
+
+        for file_name in file_names:
+            with open(file_name, 'rb') as f:
+                content = json.loads(f.read())
+                self.searched.append(content['Hearing Info']['uri'])
 
     def scrape(self):
         """

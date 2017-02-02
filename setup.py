@@ -4,7 +4,7 @@ setup(
     name='gpo_tools',
     version='1.0',
     packages=['gpo_tools'],
-    requires=['bs4'],
+    requires=['bs4', 'pprocess', 'gensim', 'nltk'],
     url='',
     license='MIT',
     author='Robert Shaffer',
