@@ -67,7 +67,6 @@ class BuildDatabase:
     def _update_tables(self):
         """ Wrapper function for creating and updating metadata tables. See functions for details. """
         self._update_gpo_tables()
-        self._update_member_table()
         self._manual_hearing_table_update()
 
     def _update_gpo_tables(self):
@@ -112,85 +111,6 @@ class BuildDatabase:
 
         with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
             f.write(json.dumps(jacket_table))
-
-    def _update_member_table(self):
-        """
-
-        Generate the member table. The member table lists party seniority, majority status, leadership,
-        committee membership, congress, and state. All member data are drawn from Stewart's committee assignments data,
-        which are available at the link below.
-
-        http://web.mit.edu/17.251/www/data_page.html
-
-        """
-        import json
-        import csv
-
-        def update(inputs, table, chamber):
-            """
-
-            Helper function, which updates a given member table with metadata from Stewart's metadata. Given data from
-            a csv object, the function interprets that file and adds the data to a json output. See Stewart's data and
-            codebook for descriptions of the variables.
-
-            """
-
-            for row in inputs:
-                name = str(row[3].lower().decode('ascii', errors='ignore')).translate(None,
-                                                                                      '!"#$%&\'()*+-./:;<=>?[\\]_`{|}~')
-                congress = row[0].lower()
-                committee_code = row[1]
-                member_id = row[2]
-                majority = row[4].lower()
-                party_seniority = row[5].lower()
-                leadership = row[9]
-                state = row[18]
-
-                if row[6] == '100':
-                    party = 'D'
-                elif row[6] == '200':
-                    party = 'R'
-                else:
-                    party = 'I'
-
-                entry = {'Party Seniority': party_seniority, 'Majority': majority, 'Leadership': leadership}
-
-                if committee_code != '':
-                    if name in table:
-                        if congress in table[name]:
-                            table[name][congress][committee_code] = entry
-
-                            if chamber != table[name][congress]['Chamber']:
-                                table[name][congress]['Chamber'] = 'JOINT'
-
-                        else:
-                            table[name][congress] = {committee_code: entry, 'Chamber': chamber}
-                    else:
-                        table[name] = {congress: {committee_code: entry, 'Chamber': chamber}}
-
-                    table[name]['Party'] = party
-                    table[name]['State'] = state
-                    table[name]['ID'] = member_id
-
-                    if 'Chamber' not in table[name]:
-                        table[name]['Chamber'] = [chamber, 'JOINT']
-                    else:
-                        table[name]['Chamber'].append(chamber)
-                        table[name]['Chamber'] = list(set(table[name]['Chamber']))
-
-        member_table = {}
-
-        # Loop through the house and senate assignment files, and save the output.
-        with open(self.pwd + os.sep + 'house_assignments.csv', 'rb') as f:
-            house_inputs = list(csv.reader(f))[2:]
-        with open(self.pwd + os.sep + 'senate_assignments.csv', 'rb') as f:
-            senate_inputs = list(csv.reader(f))[2:]
-
-        update(house_inputs, member_table, 'HOUSE')
-        update(senate_inputs, member_table, 'SENATE')
-
-        with open(self.pwd + os.sep + 'member_table.json', 'wb') as f:
-            f.write(json.dumps(member_table))
 
     def _manual_hearing_table_update(self):
         """
@@ -406,7 +326,7 @@ class BuildDatabase:
         with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
             f.write(json.dumps(jacket_table))
 
-        with open(self.pwd + self.slash + 'cis_number_table.json', 'wb') as f:
+        with open(self.pwd + os.sep + 'cis_number_table.json', 'wb') as f:
             f.write(json.dumps(cis_number_table))
 
     @staticmethod
@@ -521,9 +441,9 @@ class ParseHearing:
 
         # VERY complicated name regex, which is tough to simplify, since names aren't consistent. Modify with care.
         matches = re.finditer('(?<=    )[A-Z][a-z]+(\.)? ([A-Z][A-Za-z\'][-A-Za-z \[\]\']*?)*' +
-                              '[A-Z\[\]][-A-Za-z\[\]]{1,100}(?=\.( |-))' +
-                              '|(?<=    )Voice(?=\.( |-))' +
-                              '|(?<=    )The Chair(man|woman)(?=\.( |-))', string[0:self.max_search_length])
+                              '[A-Z\[\]][-A-Za-z\[\]]{1,100}(?=\.([- ]))' +
+                              '|(?<=    )Voice(?=\.([- ]))' +
+                              '|(?<=    )The Chair(man|woman)(?=\.([- ]))', string[0:self.max_search_length])
         for i, match in enumerate(matches):
             if match is not None and len(match.group(0).split()) <= 5 and \
                     re.search('^(' + '|'.join(self.prefixes) + ')', match.group(0)) is not None:
