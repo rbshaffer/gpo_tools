@@ -5,9 +5,10 @@ setup(
     version='1.0',
     packages=['gpo_tools'],
     requires=['bs4', 'pprocess', 'gensim', 'nltk', 'psycopg2'],
-    url='',
+    url='https://github.com/rbshaffer/gpo_tools',
     license='MIT',
     author='Robert Shaffer',
     author_email='rbshaffer@utexas.edu',
-    description='Parsing and scraping tools for GPO hearings data.'
+    description='Parsing and scraping tools for GPO hearings data.',
+    package_data={'': ['data/committee_data.csv']}
 )

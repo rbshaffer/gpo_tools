@@ -1,10 +1,11 @@
 import re
+from time import sleep
 from urllib2 import urlopen
 
 import psycopg2
 from bs4 import BeautifulSoup
 from psycopg2 import IntegrityError
-from psycopg2.extras import Json
+from psycopg2.extras import Json, DictCursor
 
 
 class Scraper:

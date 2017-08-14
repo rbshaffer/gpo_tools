@@ -1,11 +1,10 @@
 import csv
-import os
-import re
-from itertools import chain
-
 import pkg_resources
+from itertools import chain
+import os
 import psycopg2
 from psycopg2.extras import DictCursor
+import re
 
 
 class Parser:
@@ -93,7 +92,7 @@ class Parser:
         # if n_ids is reasonably large (say >1000), parallelize; if not, just do in serial
         if n_ids > 100000:
             to_analyze = [{'con': psycopg2.connect(**self.credentials),
-                           'id_inds': range(i * n_ids / n_cores, (i + 1) * n_ids / n_cores)}
+                           'id_inds': range(i*n_ids/n_cores, (i+1)*n_ids/n_cores)}
                           for i in range(n_cores)]
 
             self.results = [r for r in pprocess.pmap(parse, to_analyze, limit=n_cores)]
@@ -480,10 +479,10 @@ class ParseHearing:
 
             else:
                 print 'assigning metadata'
-                # print self.committee_data
-                # print self.entry['uri']
-                # raise
-                # self._assign_metadata()
+                #print self.committee_data
+                #print self.entry['uri']
+                #raise
+                #self._assign_metadata()
 
         else:
             self.session_cutpoints = None
@@ -524,7 +523,7 @@ class ParseHearing:
         if len(o) > 0 and o[0] is not None:
             openings = [regex.start() for regex in o]
         else:
-            openings = [self._name_search(self.entry['transcript']).start() - 10]
+            openings = [self._name_search(self.entry['transcript']).start()-10]
         c = list(re.finditer('([\[\(]?Whereupon[^\r\n]*?)?the\s+(Committee|Subcommittee|hearing|forum|panel)s?.*?' +
                              '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\]\)]?', self.entry['transcript'], flags=re.I))
 
@@ -536,7 +535,7 @@ class ParseHearing:
             self.delete_last = True
 
         if len(closings) < len(openings):
-            closings += openings[len(closings) + 1:]
+            closings += openings[len(closings)+1:]
             closings += [len(self.entry['transcript'])]
             self.delete_last = True
         elif len(openings) < len(closings):
@@ -557,8 +556,8 @@ class ParseHearing:
         for opening, closing in self.session_cutpoints:
             newlines = list(re.finditer('\n+    ', self.entry['transcript'][opening:closing]))
             for i, nl in enumerate(newlines):
-                if i < len(newlines) - 1:
-                    line = self.entry['transcript'][nl.start() + opening:newlines[i + 1].start() + opening]
+                if i < len(newlines)-1:
+                    line = self.entry['transcript'][nl.start() + opening:newlines[i+1].start() + opening]
                 else:
                     line = self.entry['transcript'][nl.start() + opening:closing]
 
