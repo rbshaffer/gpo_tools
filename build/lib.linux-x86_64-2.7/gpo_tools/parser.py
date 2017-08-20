@@ -1,10 +1,12 @@
 import csv
-import pkg_resources
-from itertools import chain
 import os
+import re
+from random import shuffle
+from itertools import chain
+
+import pkg_resources
 import psycopg2
 from psycopg2.extras import DictCursor
-import re
 
 
 class Parser:
@@ -14,6 +16,15 @@ class Parser:
         """
 
         # authenticate the connection and check to make sure the database is properly configured
+
+        def merge_two_dicts(x, y, id_val=None):
+            """Given two dicts, merge them into a new dict as a shallow copy."""
+            z = x.copy()
+            z.update(y)
+            if id_val:
+                z['id'] = id_val
+            return z
+
         self.credentials = {'dbname': db, 'user': user, 'password': password, 'host': host}
         con = psycopg2.connect('dbname={} user={} password={} host={}'.format(db, user, password, host))
         cur = con.cursor()
@@ -27,14 +38,11 @@ class Parser:
         # select and format member information (from Stewart's metadata)
         # note that this format is a little sketchy - could be better to re-organize later
         cur.execute('select * from members')
-        self.member_table = {meta['Name'][0]: meta.update(membership)
+        self.member_table = {meta['Name'][0]: merge_two_dicts(meta, membership, id_val)
                              for id_val, meta, membership in cur.fetchall()}
 
         # load the committee data file from the package resources
-        print pkg_resources.resource_filename('gpo_tools', 'data/committee_data.csv')
         with open(pkg_resources.resource_filename('gpo_tools', 'data/committee_data.csv')) as f:
-            reader = csv.reader(f)
-            reader.next()
             self.committee_data = {row[0]: {'Code': row[1], 'Chamber': row[2]} for row in csv.reader(f)}
 
         self.results = []
@@ -58,6 +66,8 @@ class Parser:
                                      GPO (e.g. \'CHRG-113jhrg79942\'). """)
             else:
                 self.id_values = id_values
+
+        shuffle(self.id_values)
 
     def parse_gpo_hearings(self, n_cores=4):
         """ Primary parser function. Wraps and parallelizes methods described elsewhere in this file. """
@@ -92,7 +102,7 @@ class Parser:
         # if n_ids is reasonably large (say >1000), parallelize; if not, just do in serial
         if n_ids > 100000:
             to_analyze = [{'con': psycopg2.connect(**self.credentials),
-                           'id_inds': range(i*n_ids/n_cores, (i+1)*n_ids/n_cores)}
+                           'id_inds': range(i * n_ids / n_cores, (i + 1) * n_ids / n_cores)}
                           for i in range(n_cores)]
 
             self.results = [r for r in pprocess.pmap(parse, to_analyze, limit=n_cores)]
@@ -366,56 +376,6 @@ class Parser:
         with open(self.pwd + os.sep + 'cis_number_table.json', 'wb') as f:
             f.write(json.dumps(cis_number_table))
 
-    @staticmethod
-    def _get_current_data(path):
-        """
-
-        Helper function, which checks to see if a path (to a json object) exists. If it exists, read in the file;
-        if not, create the file, and return an empty dictionary
-
-        """
-        import os
-        import json
-
-        if os.path.exists(path) is False:
-            with open(path, 'wb') as f:
-                current_data = {}
-                f.write(json.dumps(current_data))
-        else:
-            with open(path, 'rb') as f:
-                current_data = json.loads(f.read())
-
-        return current_data
-
-    @staticmethod
-    def _syschar():
-        """ Helper function, which returns the appropriate slash character for the native operating system. """
-        import sys
-
-        if sys.platform in ['win32', 'cygwin']:
-            return '\\'
-        else:
-            return '/'
-
-    def _execute(self, cmd, data=None, errors='strict'):
-        """ Wrapper function for pyscopg2 commands. """
-        if errors not in ['strict', 'ignore']:
-            raise ValueError("""errors argument must be \'strict\' (raise exception on bad command)
-                                or \'ignore\' (return None on bad command). '""")
-
-        self.cur = self.con.cursor()
-
-        if errors == 'ignore':
-            try:
-                self.cur.execute(cmd, data)
-            except:
-                self.con.rollback()
-
-        elif errors == 'strict':
-            self.cur.execute(cmd, data)
-
-        self.con.commit()
-
 
 class ParseHearing:
     def __init__(self, entry, committee_data, member_table):
@@ -450,7 +410,8 @@ class ParseHearing:
                          'Secretary', 'Director', 'Representative', 'Vice Chairman', 'Vice Chair', 'Admiral', 'General',
                          'Gen.', 'Judge', 'Commissioner', 'Lieutenant', 'Lt.', 'Trustee', 'Sergeant', 'Major',
                          'Colonel', 'Captain', 'Capt.', 'Commander', 'Specialist', 'Voice', 'The Chairman',
-                         'The Chairwoman', 'Governor', 'Chair', 'The Clerk', 'Clerk', 'Mayor', 'Reverend', 'Justice']
+                         'The Chairwoman', 'Governor', 'Chair', 'The Clerk', 'Clerk', 'Mayor', 'Reverend', 'Justice',
+                         'Ambassador', 'Chief']
 
         # Constant for performance. Limits how far forward (number of characters) the script will search in order to
         # find certain pieces of information, such as the name of the chair of the committee.
@@ -463,7 +424,7 @@ class ParseHearing:
         if self._name_search(self.entry['transcript']) is not None:
             self.session_cutpoints = self._find_sessions()
             self.statement_cutpoints = self._find_statements()
-            # self.parsed = self._segment_transcript()
+            self.parsed = self._segment_transcript()
 
             # If a committee name is missing from the committee_data.csv file, output a warning and skip the file
             if any(meta_chamber + '-' + c not in self.committee_data for c in self.entry['committees']) is True:
@@ -479,17 +440,20 @@ class ParseHearing:
 
             else:
                 print 'assigning metadata'
-                #print self.committee_data
-                #print self.entry['uri']
-                #raise
-                #self._assign_metadata()
+                self._assign_metadata()
 
         else:
-            self.session_cutpoints = None
-            self.statement_cutpoints = None
-            self.parsed = None
+            self.session_cutpoints = []
+            self.statement_cutpoints = []
+            self.parsed = []
 
-        self.parsed = None
+        print self.entry['id']
+        for row in self.parsed:
+            print row['name_raw'], row['name_full'], row['jacket'], row['committees']
+            print row['cleaned']
+            print '------------'
+        print set(row['name_raw'] for row in self.parsed if row['name_full'] == 'NA')
+        raw_input('')
 
     def _name_search(self, string):
         """ Helper function, which sorts through the hearing text and finds all names that start statements. """
@@ -523,7 +487,7 @@ class ParseHearing:
         if len(o) > 0 and o[0] is not None:
             openings = [regex.start() for regex in o]
         else:
-            openings = [self._name_search(self.entry['transcript']).start()-10]
+            openings = [self._name_search(self.entry['transcript']).start() - 10]
         c = list(re.finditer('([\[\(]?Whereupon[^\r\n]*?)?the\s+(Committee|Subcommittee|hearing|forum|panel)s?.*?' +
                              '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\]\)]?', self.entry['transcript'], flags=re.I))
 
@@ -535,7 +499,7 @@ class ParseHearing:
             self.delete_last = True
 
         if len(closings) < len(openings):
-            closings += openings[len(closings)+1:]
+            closings += openings[len(closings) + 1:]
             closings += [len(self.entry['transcript'])]
             self.delete_last = True
         elif len(openings) < len(closings):
@@ -556,8 +520,8 @@ class ParseHearing:
         for opening, closing in self.session_cutpoints:
             newlines = list(re.finditer('\n+    ', self.entry['transcript'][opening:closing]))
             for i, nl in enumerate(newlines):
-                if i < len(newlines)-1:
-                    line = self.entry['transcript'][nl.start() + opening:newlines[i+1].start() + opening]
+                if i < len(newlines) - 1:
+                    line = self.entry['transcript'][nl.start() + opening:newlines[i + 1].start() + opening]
                 else:
                     line = self.entry['transcript'][nl.start() + opening:closing]
 
@@ -635,17 +599,17 @@ class ParseHearing:
                 # if committee data is given, get formal committee names and their chambers
                 if self.committee_data:
                     committees = [self.committee_data[meta_chamber + '-' + c]['Code'] for c in self.entry['committees']]
-                    committee_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
+                    hearing_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
                                                   self.entry['committees']]))
 
-                    if len(committee_chamber) > 1:
-                        committee_chamber = 'JOINT'
+                    if len(hearing_chamber) > 1:
+                        hearing_chamber = 'JOINT'
                     else:
-                        committee_chamber = committee_chamber[0]
+                        hearing_chamber = hearing_chamber[0]
 
                 else:
                     committees = []
-                    committee_chamber = None
+                    hearing_chamber = None
 
                 congress = self.entry['congress']
 
@@ -653,8 +617,8 @@ class ParseHearing:
                 cleaned = clean_statement(statement)
 
                 output.append({'name_raw': name, 'name_full': None, 'member_id': None, 'state': state, 'party': None,
-                               'committees': ','.join(committees), 'person_chamber': None,
-                               'hearing_chamber': committee_chamber, 'majority': None, 'party_seniority': None,
+                               'committees': committees, 'person_chamber': None,
+                               'hearing_chamber': hearing_chamber, 'majority': None, 'party_seniority': None,
                                'leadership': None, 'congress': congress, 'jacket': self.entry['id'],
                                'cleaned': cleaned})
 
@@ -690,24 +654,6 @@ class ParseHearing:
 
             return string
 
-        def clean_statement(string):
-            """
-
-            Helper function to clean undesired text out of statements. Currently cleans titles, some prepared
-            statements, and some procedural text.
-
-            """
-            s = re.search('(\[\(.*?[\r\n]*.*?(prepared|opening)\s+statement.*?[\r\n]*.*?\]\)|' +
-                          '\[\(.*?[\r\n]*.*?following.*?(was|were).*?[\r\n]*.*?[\r\n]*.*?\]\)|' +
-                          '\[\(.*?[\r\n]*.*?follows?\.:.*?[\r\n]*[^<]*?\]\))' +
-                          '(?!\s+[<|\[]GRAPHIC)',
-                          string, re.I)
-            if s is not None:
-                string = string[0:s.start()]
-            string = re.sub('---------+[\n\r]+.*?[\n\r]+---------+|\s*<[^\r\n]+>\s*', '', string, flags=re.S)
-            string = re.sub('\[.*?\]', '', string)
-            return string
-
         def find_member_list():
             """
 
@@ -717,7 +663,7 @@ class ParseHearing:
 
             """
             results = re.finditer('    (Members |Also )?(present[^.]*?:)([^.]+)',
-                                  self.hearing_text[0:self.max_search_length], flags=re.I)
+                                  self.entry['transcript'][0:self.max_search_length], flags=re.I)
             out = []
             for result in results:
                 result = re.sub('\s+', ' ', result.group(3))
@@ -740,7 +686,7 @@ class ParseHearing:
             start = self.statement_cutpoints[0][0]
             chair_search = re.search('([-A-Za-z\'\n]+)[,]?( (jr|[ivx]+))?[,\. \n]*?\s+' +
                                      '[\(\[]?(chairman|chairwoman)( of|\)|\]|,)',
-                                     self.hearing_text[start-1000:start], flags=re.I)
+                                     self.entry['transcript'][start-1000:start], flags=re.I)
             if chair_search is not None:
                 return re.sub('\s', '', chair_search.group(1))
             else:
@@ -760,7 +706,6 @@ class ParseHearing:
                          u'MT', u'NE', u'NV', u'NH', u'NJ', u'NM', u'NY', u'NC', u'ND', u'OH', u'OK', u'OR', u'PA',
                          u'RI', u'SC', u'SD', u'TN', u'TX', u'UT', u'VT', u'VA', u'WA', u'WV', u'WI', u'WY']
 
-        output = []
         chair = find_chair()
         present_members = find_member_list()
         if chair is not None and present_members is not None:
@@ -768,154 +713,142 @@ class ParseHearing:
         else:
             present_members = find_member_list()
 
-        # Loop over statement cutpoints. Note that the last set of cutpoints is length 1 (since it's just the end of the
-        # hearing), so we can skip that.
-        for i, cut in enumerate(self.statement_cutpoints):
-            if len(cut) == 2:
+        for i in range(len(self.parsed)):
+            name = self.parsed[i]['name_raw']
+            state = self.parsed[i]['state']
 
-                # Grab the name, and strip state names and editorial marks if present
-                name = self.hearing_text[cut[0]:cut[1]]
-                name = re.sub('\s*\[[a-z ]*?\]\s*', '', name)
-                state_matches = [st for st in states_long if st in name.lower()]
-                if len(state_matches) == 1:
-                    state = state_matches[0]
-                    name = re.sub(' of ' + state, '', name, flags=re.I)
+            if re.search('the chair(man|woman)', name, re.I) is not None and chair is not None:
+                name_last = chair
+            else:
+                name_last = find_last_name(name)
+
+            committees = self.parsed[i]['committees']
+            hearing_chamber = self.parsed[i]['hearing_chamber']
+            congress = str(self.parsed[i]['congress'])
+
+            person_chamber = ''
+
+            #####################################################################
+            # Ugly pile of logic to match names to metadata - modify with care! #
+            #####################################################################
+            # First, check to see if there's a member in the member table with a matching name, who also served on
+            # the same committee in the same congress
+            #
+            # if name == 'Mrs. Christensen':
+            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())]
+            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+            #                         and congress in self.member_table[n]]
+            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+            #                         and congress in self.member_table[n]
+            #                         and any([c in self.member_table[n][congress]
+            #                                  for c in committees]) is True]
+            #
+            #     print self.member_table[u'christensen, donna marie christian']
+            #     raw_input('')
+
+            member_table_matches = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+                                    and congress in self.member_table[n]
+                                    and any([c in self.member_table[n][congress]
+                                             for c in committees]) is True]
+
+            # If the state is specified in the transcript, do some additional matching
+            if state is not None:
+                abbrev = states_abbrev[states_long.index(state)]
+                member_table_matches = [m for m in member_table_matches if self.member_table[m]['State'] == abbrev]
+
+            # Same process for witnesses
+            witness_name_matches = [n for n in self.entry['witness_meta']
+                                    if name_last.lower().translate(None, punctuation)
+                                    in str(n).lower().translate(None, punctuation)]
+
+            # Same process for "guest" members who happen to be present at that hearing, matching on Congress and
+            # list of members in the present_members list
+            guest_matches = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) in
+                             re.sub('\s|jr\.?', '', str(n).lower())
+                             and hearing_chamber in self.member_table[n]['Chamber']
+                             and congress in self.member_table[n]
+                             and present_members is not None
+                             and n.split(',')[0].lower() in present_members.lower()]
+
+            # If there's a unique match on the member name, take that as the match
+            if len(member_table_matches) == 1:
+                name_full = member_table_matches[0]
+                party = self.member_table[name_full]['Party'][0]
+                member_id = self.member_table[name_full]['id']
+                current_committees = [c for c in committees if c in self.member_table[name_full][congress]]
+                person_chamber = self.member_table[name_full][congress][current_committees[0]]['Chamber']
+
+                if len(current_committees) == 1:
+                    c = current_committees[0]
+                    majority = self.member_table[name_full][congress][c]['Majority']
+                    party_seniority = self.member_table[name_full][congress][c]['Party Seniority']
+                    leadership = self.member_table[name_full][congress][c]['Leadership']
+
                 else:
-                    state = None
-
-                # Gather metadata
-                if re.search('the chair(man|woman)', name, re.I) is not None and chair is not None:
-                    name_last = chair
-                else:
-                    name_last = find_last_name(name)
-
-                meta_chamber = self.hearing_data['Hearing Info']['Chamber']
-                committees = [self.committee_data[meta_chamber + '-' + c]['Code'] for c in
-                              self.hearing_data['Hearing Info']['Committee']]
-
-                hearing_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
-                                            self.hearing_data['Hearing Info']['Committee']]))
-
-                person_chamber = ''
-
-                if len(hearing_chamber) > 1:
-                    hearing_chamber = 'JOINT'
-                else:
-                    hearing_chamber = hearing_chamber[0]
-
-                congress = self.hearing_data['Hearing Info']['Congress']
-
-                #####################################################################
-                # Ugly pile of logic to match names to metadata - modify with care! #
-                #####################################################################
-
-                # First, check to see if there's a member in the member table with a matching name, who also served on
-                # the same committee in the same congress
-                member_table_matches = [n for n in self.member_table if str(name_last).lower() ==
-                                        str(n.split(',')[0]).lower()
-                                        and congress in self.member_table[n]
-                                        and any([c in self.member_table[n][congress]
-                                                 for c in committees]) is True]
-
-                # If the state is specified in the transcript, do some additional matching
-                if state is not None:
-                    abbrev = states_abbrev[states_long.index(state)]
-                    member_table_matches = [m for m in member_table_matches if self.member_table[m]['State'] == abbrev]
-
-                # Same process for witnesses
-                witness_name_matches = [n for n in self.hearing_data['Witness Info'] if
-                                        name_last.lower() in str(n).lower().translate(None, punctuation)]
-
-                # Same process for "guest" members who happen to be present at that hearing, matching on Congress and
-                # list of members in the present_members list
-                guest_matches = [n for n in self.member_table if str(name_last).lower() in str(n).lower()
-                                 and hearing_chamber in self.member_table[n]['Chamber']
-                                 and congress in self.member_table[n]
-                                 and present_members is not None
-                                 and n.split(',')[0].lower() in present_members.lower()]
-
-                # If there's a unique match on the member name, take that as the match
-                if len(member_table_matches) == 1:
-                    name_full = member_table_matches[0]
-                    party = self.member_table[name_full]['Party']
-                    member_id = self.member_table[name_full]['ID']
-                    current_committees = [c for c in committees if c in self.member_table[name_full][congress]]
-                    person_chamber = self.member_table[name_full][congress]['Chamber']
-
-                    if len(current_committees) == 1:
-                        c = current_committees[0]
-                        majority = self.member_table[name_full][congress][c]['Majority']
-                        party_seniority = self.member_table[name_full][congress][c]['Party Seniority']
-                        leadership = self.member_table[name_full][congress][c]['Leadership']
-
-                    else:
-                        majority = 'NA'
-                        party_seniority = 'NA'
-                        leadership = 'NA'
-
-                # else, if there's a unique match in the witness list (and the witness isn't a member of congress),
-                # use that
-                elif len(witness_name_matches) == 1 and 'Representative in Congress' not in witness_name_matches[0] \
-                        and 'Senator' not in witness_name_matches[0]:
-                    name_full = witness_name_matches[0]
-                    member_id = 'NA'
-                    party = 'WITNESS'
-                    majority = 'NA'
-                    party_seniority = 'NA'
-                    leadership = 'NA'
-                    person_chamber = hearing_chamber
-
-                # else, if there's a unique match in the list of guest members, take that
-                elif len(guest_matches) == 1:
-                    name_full = guest_matches[0]
-                    member_id = self.member_table[guest_matches[0]]['ID']
-                    party = self.member_table[guest_matches[0]]['Party']
-                    person_chamber = self.member_table[guest_matches[0]][congress]['Chamber']
                     majority = 'NA'
                     party_seniority = 'NA'
                     leadership = 'NA'
 
-                # if all else fails, check the member data table and see if there's a member of Congress with a matching
-                # name who served on the given committee in the given Congress - if so, take that as a match
-                else:
-                    rep_list = [n for n in self.member_table if str(name_last).lower() ==
-                                str(n.split(',')[0]).lower()
-                                and congress in self.member_table[n]]
+            # else, if there's a unique match in the witness list (and the witness isn't a member of congress),
+            # use that
+            elif len(witness_name_matches) == 1 and 'Representative in Congress' not in witness_name_matches[0] \
+                    and 'Senator' not in witness_name_matches[0]:
+                name_full = witness_name_matches[0]
+                member_id = 'NA'
+                party = 'WITNESS'
+                majority = 'NA'
+                party_seniority = 'NA'
+                leadership = 'NA'
+                person_chamber = hearing_chamber
 
-                    if len(rep_list) == 1:
-                        try:
-                            name_line = re.search('.* ' + name_last + '[ ,.].*|^' + name_last + '[ ,.].*',
-                                                  self.hearing_text[:self.statement_cutpoints[0][0]],
-                                                  flags=re.I | re.M).group(0).strip()
-                            first_word = re.search('^[^\s]*', name_line).group(0)
-                            if first_word in ['Representative ', 'Senator '] or 'Representative in Congress' in \
-                                    name_line or 'U.S. Senator' in name_line:
-                                name_full = rep_list[0]
-                                member_id = self.member_table[name_full]['ID']
-                                party = self.member_table[name_full]['Party']
-                                current_committees = [c for c in committees
-                                                      if c in self.member_table[name_full][congress]]
-                                person_chamber = self.member_table[name_full][congress]['Chamber']
+            # else, if there's a unique match in the list of guest members, take that
+            elif len(guest_matches) == 1:
+                name_full = guest_matches[0]
+                member_id = self.member_table[guest_matches[0]]['id']
+                party = self.member_table[guest_matches[0]]['Party'][0]
+                person_chamber = self.member_table[guest_matches[0]]['Chamber'][0]
+                majority = 'NA'
+                party_seniority = 'NA'
+                leadership = 'NA'
 
-                                if len(current_committees) == 1:
-                                    c = current_committees[0]
-                                    majority = self.member_table[name_full][congress][c]['Majority']
-                                    party_seniority = self.member_table[name_full][congress][c]['Party Seniority']
-                                    leadership = self.member_table[name_full][congress][c]['Leadership']
-                                else:
-                                    majority = 'NA'
-                                    party_seniority = 'NA'
-                                    leadership = 'NA'
+            # if all else fails, check the member data table and see if there's a member of Congress with a matching
+            # name who served on the given committee in the given Congress - if so, take that as a match
+            else:
+                rep_list = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+                            re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+                            and congress in self.member_table[n]]
 
+                if len(rep_list) == 1:
+                    try:
+                        name_line = re.search('.* ' + name_last + '[ ,.].*|^' + name_last + '[ ,.].*',
+                                              self.entry['transcript'][:self.statement_cutpoints[0][0]],
+                                              flags=re.I | re.M).group(0).strip()
+
+                        first_word = re.search('^[^\s]*', name_line).group(0)
+                        if first_word in ['Representative ', 'Senator '] or 'Representative in Congress' in \
+                                name_line or 'U.S. Senator' in name_line:
+                            name_full = rep_list[0]
+                            member_id = self.member_table[name_full]['id']
+                            party = self.member_table[name_full]['Party'][0]
+                            current_committees = [c for c in committees
+                                                  if c in self.member_table[name_full][congress]]
+                            person_chamber = self.member_table[name_full][congress]['Chamber']
+
+                            if len(current_committees) == 1:
+                                c = current_committees[0]
+                                majority = self.member_table[name_full][congress][c]['Majority']
+                                party_seniority = self.member_table[name_full][congress][c]['Party Seniority']
+                                leadership = self.member_table[name_full][congress][c]['Leadership']
                             else:
-                                name_full = 'NA'
-                                member_id = 'NA'
-                                party = 'NA'
                                 majority = 'NA'
                                 party_seniority = 'NA'
                                 leadership = 'NA'
 
-                        except AttributeError:
+                        else:
                             name_full = 'NA'
                             member_id = 'NA'
                             party = 'NA'
@@ -923,7 +856,7 @@ class ParseHearing:
                             party_seniority = 'NA'
                             leadership = 'NA'
 
-                    else:
+                    except AttributeError:
                         name_full = 'NA'
                         member_id = 'NA'
                         party = 'NA'
@@ -931,44 +864,18 @@ class ParseHearing:
                         party_seniority = 'NA'
                         leadership = 'NA'
 
-                # Append all of that matched data and the statement text to the output file
-                statement = self.hearing_text[cut[1] + 2:self.statement_cutpoints[i+1][0]]
-                cleaned = clean_statement(statement)
+                else:
+                    name_full = 'NA'
+                    member_id = 'NA'
+                    party = 'NA'
+                    majority = 'NA'
+                    party_seniority = 'NA'
+                    leadership = 'NA'
 
-                if person_chamber == '':
-                    person_chamber = hearing_chamber
+            if person_chamber == '':
+                person_chamber = hearing_chamber
 
-                output.append([name, name_full, member_id, state, party, ','.join(committees), person_chamber,
-                               hearing_chamber, majority, party_seniority, leadership, cleaned])
-
-        if self.delete_last is True:
-            del output[-1]
-
-        return output
-
-#
-# import csv
-# from datetime import datetime
-#
-# start = datetime.now()
-# print start
-#
-# with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/manual_sudoc_table.csv', 'rb') as f:
-#     manual_sudoc_table = list(csv.reader(f))
-#     jackets_dates = zip(zip(*manual_sudoc_table)[0], zip(*manual_sudoc_table)[3])
-#
-# with open('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data/dates and hearing types.csv', 'rb') as f:
-#     types_dates = list(csv.reader(f))
-#     types_dates = [[row[0]] + row[2:5] for row in types_dates]
-#
-#
-# build = BuildDatabase('/home/rbshaffer/Desktop/Financial_Replication/Hearing_Data')
-# # build.parse_gpo_hearings()
-# # results = build.results
-# # build.create_dataset(jackets_dates, types_dates)
-# build.create_dataset(committee_list=('196', '156', '251'),
-#                      out_name='comparing_committees',
-#                      min_words=50)
-# print 'dataset created'
-#
-# print datetime.now() - start
+            committees = ','.join(committees)
+            self.parsed[i].update({'name_full': name_full, 'member_id': member_id, 'party': party, 'majority': majority,
+                                   'person_chamber': person_chamber, 'party_seniority': party_seniority,
+                                   'leadership': leadership, 'committees': committees})
