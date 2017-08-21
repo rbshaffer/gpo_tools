@@ -1,1 +1,2 @@
 recursive-include gpo_tools *.csv
+recursive-include gpo_tools *.txt

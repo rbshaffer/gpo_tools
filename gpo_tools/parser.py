@@ -41,9 +41,9 @@ class Parser:
         self.member_table = {}
         for id_val, meta, membership in cur.fetchall():
             if meta['Name'][0] not in self.member_table:
-                self.member_table[meta['Name'][0]] = merge_two_dicts(meta, membership, id_val)
+                self.member_table[tuple(meta['Name'])] = merge_two_dicts(meta, membership, id_val)
             else:
-                self.member_table[meta['Name'][0]].update(merge_two_dicts(meta, membership, id_val))
+                self.member_table[tuple(meta['Name'])].update(merge_two_dicts(meta, membership, id_val))
 
         # load the committee data file from the package resources
         with open(pkg_resources.resource_filename('gpo_tools', 'data/committee_data.csv')) as f:
@@ -456,7 +456,7 @@ class ParseHearing:
             print row['name_raw'], row['name_full'], row['jacket'], row['committees']
             print row['cleaned']
             print '------------'
-        print set(row['name_raw'] for row in self.parsed if row['name_full'] == 'NA')
+        print set(row['name_raw'] for row in self.parsed if row['name_full'] == ('NA',))
         raw_input('')
 
     def _name_search(self, string):
@@ -693,7 +693,7 @@ class ParseHearing:
             """
             start = self.statement_cutpoints[0][0]
             chair_search = re.search('([-A-Za-z\'\n]+)[,]?( (jr|[ivx]+))?[,\. \n]*?\s+' +
-                                     '[\(\[]?(chairman|chairwoman)( of|\)|\]|,)',
+                                     '[\(\[]?(chairman|chairwoman)\s*(of|\)|\]|,)',
                                      self.entry['transcript'][start - 1000:start], flags=re.I)
             if chair_search is not None:
                 return re.sub('\s', '', chair_search.group(1))
@@ -742,24 +742,29 @@ class ParseHearing:
             # First, check to see if there's a member in the member table with a matching name, who also served on
             # the same committee in the same congress
             #
-            if name == 'Senator Cantwell':
-                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-                       re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())]
-                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-                       re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-                       and congress in self.member_table[n]]
-                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-                       re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-                       and congress in self.member_table[n]
-                       and any([c in self.member_table[n][congress]
-                                for c in committees]) is True]
-                raw_input('')
+            # if name == 'Ms. Brown-Waite':
+            #     print name_last
+            #     print [n_tuple for n_tuple in self.member_table
+            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])]
+            #     print [n_tuple for n_tuple in self.member_table
+            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
+            #            and congress in self.member_table[n_tuple]]
+            #     print [n_tuple for n_tuple in self.member_table
+            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
+            #            and congress in self.member_table[n_tuple]
+            #            and any([c in self.member_table[n_tuple][congress]
+            #                     for c in committees]) is True]
+            #     raw_input('')
 
-            member_table_matches = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-                                    and congress in self.member_table[n]
-                                    and any([c in self.member_table[n][congress]
-                                             for c in committees]) is True]
+            member_table_matches = [n_tuple for n_tuple in self.member_table
+                                    if any([re.sub('\s|jr\.?', '',
+                                                   str(name_last).lower()).translate(None, punctuation) ==
+                                            re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
+                                    and congress in self.member_table[n_tuple]
+                                    and any([c in self.member_table[n_tuple][congress] for c in committees]) is True]
 
             # If the state is specified in the transcript, do some additional matching
             if state is not None:
@@ -773,17 +778,21 @@ class ParseHearing:
 
             # Same process for "guest" members who happen to be present at that hearing, matching on Congress and
             # list of members in the present_members list
-            guest_matches = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) in
-                             re.sub('\s|jr\.?', '', str(n).lower())
-                             and hearing_chamber in self.member_table[n]['Chamber']
-                             and congress in self.member_table[n]
+            guest_matches = [n_tuple for n_tuple in self.member_table
+                             if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+                                     re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
+                             and hearing_chamber in self.member_table[n_tuple]['Chamber']
+                             and congress in self.member_table[n_tuple]
                              and present_members is not None
-                             and n.split(',')[0].lower() in present_members.lower()]
+                             and any([n.split(',')[0].lower() in present_members.lower() for n in n_tuple])]
 
             # If there's a unique match on the member name, take that as the match
             if len(member_table_matches) == 1:
                 name_full = member_table_matches[0]
-                party = self.member_table[name_full]['Party'][0]
+
+                first_committee = self.member_table[name_full][congress].keys()[0]
+                party = self.member_table[name_full][congress][first_committee]['Party']
+
                 member_id = self.member_table[name_full]['id']
                 current_committees = [c for c in committees if c in self.member_table[name_full][congress]]
                 person_chamber = self.member_table[name_full][congress][current_committees[0]]['Chamber']
@@ -803,7 +812,7 @@ class ParseHearing:
             # use that
             elif len(witness_name_matches) == 1 and 'Representative in Congress' not in witness_name_matches[0] \
                     and 'Senator' not in witness_name_matches[0]:
-                name_full = witness_name_matches[0]
+                name_full = (witness_name_matches[0],)
                 member_id = 'NA'
                 party = 'WITNESS'
                 majority = 'NA'
@@ -815,8 +824,11 @@ class ParseHearing:
             elif len(guest_matches) == 1:
                 name_full = guest_matches[0]
                 member_id = self.member_table[guest_matches[0]]['id']
-                party = self.member_table[guest_matches[0]]['Party'][0]
-                person_chamber = self.member_table[guest_matches[0]]['Chamber'][0]
+
+                first_committee = self.member_table[guest_matches[0]][congress].keys()[0]
+                party = self.member_table[guest_matches[0]][congress][first_committee]['Party']
+                person_chamber = self.member_table[guest_matches[0]][congress][first_committee]['Chamber']
+
                 majority = 'NA'
                 party_seniority = 'NA'
                 leadership = 'NA'
@@ -824,9 +836,10 @@ class ParseHearing:
             # if all else fails, check the member data table and see if there's a member of Congress with a matching
             # name who served on the given committee in the given Congress - if so, take that as a match
             else:
-                rep_list = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-                            re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-                            and congress in self.member_table[n]]
+                rep_list = [n_tuple for n_tuple in self.member_table
+                            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
+                            and congress in self.member_table[n_tuple]]
 
                 if len(rep_list) == 1:
                     try:
@@ -839,10 +852,10 @@ class ParseHearing:
                                 name_line or 'U.S. Senator' in name_line:
                             name_full = rep_list[0]
                             member_id = self.member_table[name_full]['id']
-                            party = self.member_table[name_full]['Party'][0]
+                            party = self.member_table[name_full]['Party']
                             current_committees = [c for c in committees
                                                   if c in self.member_table[name_full][congress]]
-                            person_chamber = self.member_table[name_full][congress]['Chamber']
+                            person_chamber = self.member_table[name_full]['Chamber']
 
                             if len(current_committees) == 1:
                                 c = current_committees[0]
@@ -855,7 +868,7 @@ class ParseHearing:
                                 leadership = 'NA'
 
                         else:
-                            name_full = 'NA'
+                            name_full = ('NA',)
                             member_id = 'NA'
                             party = 'NA'
                             majority = 'NA'
@@ -863,7 +876,7 @@ class ParseHearing:
                             leadership = 'NA'
 
                     except AttributeError:
-                        name_full = 'NA'
+                        name_full = ('NA',)
                         member_id = 'NA'
                         party = 'NA'
                         majority = 'NA'
@@ -871,7 +884,7 @@ class ParseHearing:
                         leadership = 'NA'
 
                 else:
-                    name_full = 'NA'
+                    name_full = ('NA',)
                     member_id = 'NA'
                     party = 'NA'
                     majority = 'NA'
@@ -881,7 +894,7 @@ class ParseHearing:
             if person_chamber == '':
                 person_chamber = hearing_chamber
 
-            committees = ','.join(committees)
-            self.parsed[i].update({'name_full': name_full, 'member_id': member_id, 'party': party, 'majority': majority,
+            self.parsed[i].update(
+                {'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
                                    'person_chamber': person_chamber, 'party_seniority': party_seniority,
-                                   'leadership': leadership, 'committees': committees})
+                 'leadership': leadership, 'committees': tuple(committees)})
