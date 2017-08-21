@@ -1,8 +1,8 @@
 import csv
 import os
 import re
-from random import shuffle
 from itertools import chain
+from random import shuffle
 
 import pkg_resources
 import psycopg2
@@ -38,8 +38,12 @@ class Parser:
         # select and format member information (from Stewart's metadata)
         # note that this format is a little sketchy - could be better to re-organize later
         cur.execute('select * from members')
-        self.member_table = {meta['Name'][0]: merge_two_dicts(meta, membership, id_val)
-                             for id_val, meta, membership in cur.fetchall()}
+        self.member_table = {}
+        for id_val, meta, membership in cur.fetchall():
+            if meta['Name'][0] not in self.member_table:
+                self.member_table[meta['Name'][0]] = merge_two_dicts(meta, membership, id_val)
+            else:
+                self.member_table[meta['Name'][0]].update(merge_two_dicts(meta, membership, id_val))
 
         # load the committee data file from the package resources
         with open(pkg_resources.resource_filename('gpo_tools', 'data/committee_data.csv')) as f:
@@ -489,7 +493,8 @@ class ParseHearing:
         else:
             openings = [self._name_search(self.entry['transcript']).start() - 10]
         c = list(re.finditer('([\[\(]?Whereupon[^\r\n]*?)?the\s+(Committee|Subcommittee|hearing|forum|panel)s?.*?' +
-                             '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\]\)]?', self.entry['transcript'], flags=re.I))
+                             '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\]\)]?|' +
+                             '\[Additional material follows\.?\]', self.entry['transcript'], flags=re.I))
 
         if len(c) > 0:
             closings = [regex.start() for regex in c]
@@ -543,21 +548,24 @@ class ParseHearing:
         def clean_statement(string):
             """
 
-            Helper function to clean undesired text out of statements. Currently cleans titles, some prepared
-            statements, and some procedural text.
+            Helper function to clean undesired text out of statements. Currently cleans procedural text, with an option
+            to remove prepared statements. Disabled by default.
 
             """
+
             s = re.search('([\[(].*?[\r\n]*.*?(prepared|opening)\s+statement.*?[\r\n]*.*?[\])]|' +
                           '[\[(].*?[\r\n]*.*?following.*?(was|were).*?[\r\n]*.*?[\r\n]*.*?[\])]|' +
-                          '[\[(].*?[\r\n]*.*?follows?\.:.*?[\r\n]*[^<]*?[\])])' +
+                          '[\[(].*?[\r\n]*.*?follows?[:.].*?[\r\n]*[^<]*?[\])])' +
                           '(?!\s+[<|\[]GRAPHIC)',
                           string, re.I)
 
             if s is not None:
                 string = string[0:s.start()]
-            string = re.sub('---------+[\n\r]+.*?[\n\r]+---------+|\s*<[^\r\n]+>\s*', '', string, flags=re.S)
-            string = re.sub('\[.*?\]', '', string)
+
+            string = re.sub('---------+[\n\r]+.*?[\n\r]+---------+|\s*<[^\r\n]+>\s*', '', string, flags=re.DOTALL)
+            string = re.sub('\[.*?[\n\r]*?.*?\]', '', string)
             string = re.sub('(OPENING )?STATEMENT.*', '', string, flags=re.DOTALL)
+
             string = string.strip()
 
             return string
@@ -600,7 +608,7 @@ class ParseHearing:
                 if self.committee_data:
                     committees = [self.committee_data[meta_chamber + '-' + c]['Code'] for c in self.entry['committees']]
                     hearing_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
-                                                  self.entry['committees']]))
+                                                self.entry['committees']]))
 
                     if len(hearing_chamber) > 1:
                         hearing_chamber = 'JOINT'
@@ -662,8 +670,8 @@ class ParseHearing:
             members.
 
             """
-            results = re.finditer('    (Members |Also )?(present[^.]*?:)([^.]+)',
-                                  self.entry['transcript'][0:self.max_search_length], flags=re.I)
+            results = re.finditer(' {4}(Members |Also )?(present[^.]*?:)(.*?)\.[\n\r]',
+                                  self.entry['transcript'][0:self.max_search_length], flags=re.I|re.S)
             out = []
             for result in results:
                 result = re.sub('\s+', ' ', result.group(3))
@@ -686,7 +694,7 @@ class ParseHearing:
             start = self.statement_cutpoints[0][0]
             chair_search = re.search('([-A-Za-z\'\n]+)[,]?( (jr|[ivx]+))?[,\. \n]*?\s+' +
                                      '[\(\[]?(chairman|chairwoman)( of|\)|\]|,)',
-                                     self.entry['transcript'][start-1000:start], flags=re.I)
+                                     self.entry['transcript'][start - 1000:start], flags=re.I)
             if chair_search is not None:
                 return re.sub('\s', '', chair_search.group(1))
             else:
@@ -734,20 +742,18 @@ class ParseHearing:
             # First, check to see if there's a member in the member table with a matching name, who also served on
             # the same committee in the same congress
             #
-            # if name == 'Mrs. Christensen':
-            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())]
-            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-            #                         and congress in self.member_table[n]]
-            #     print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
-            #                         re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
-            #                         and congress in self.member_table[n]
-            #                         and any([c in self.member_table[n][congress]
-            #                                  for c in committees]) is True]
-            #
-            #     print self.member_table[u'christensen, donna marie christian']
-            #     raw_input('')
+            if name == 'Senator Cantwell':
+                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())]
+                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+                                    and congress in self.member_table[n]]
+                print [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
+                                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
+                                    and congress in self.member_table[n]
+                                    and any([c in self.member_table[n][congress]
+                                             for c in committees]) is True]
+                raw_input('')
 
             member_table_matches = [n for n in self.member_table if re.sub('\s|jr\.?', '', str(name_last).lower()) ==
                                     re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower())
@@ -758,7 +764,7 @@ class ParseHearing:
             # If the state is specified in the transcript, do some additional matching
             if state is not None:
                 abbrev = states_abbrev[states_long.index(state)]
-                member_table_matches = [m for m in member_table_matches if self.member_table[m]['State'] == abbrev]
+                member_table_matches = [m for m in member_table_matches if abbrev in self.member_table[m]['State']]
 
             # Same process for witnesses
             witness_name_matches = [n for n in self.entry['witness_meta']
