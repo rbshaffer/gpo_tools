@@ -1,11 +1,15 @@
 import csv
-import os
 import re
+import string
+import sys
 from itertools import chain
+from itertools import repeat
 from random import shuffle
 
 import pkg_resources
 import psycopg2
+from gensim import corpora
+from nltk.corpus import stopwords
 from psycopg2.extras import DictCursor
 
 
@@ -17,12 +21,12 @@ class Parser:
 
         # authenticate the connection and check to make sure the database is properly configured
 
-        def merge_two_dicts(x, y, id_val=None):
+        def merge_two_dicts(x, y, id_to_add=None):
             """Given two dicts, merge them into a new dict as a shallow copy."""
             z = x.copy()
             z.update(y)
-            if id_val:
-                z['id'] = id_val
+            if id_to_add:
+                z['id'] = id_to_add
             return z
 
         self.credentials = {'dbname': db, 'user': user, 'password': password, 'host': host}
@@ -94,9 +98,12 @@ class Parser:
 
                 cur.execute('select * from hearings where id = %s', (id_to_parse,))
                 entry = cur.fetchone()
-                parsed = ParseHearing(entry, committee_data=self.committee_data, member_table=self.member_table).parsed
-
-                output.append(parsed)
+                if entry is not None:
+                    parsed = ParseHearing(entry, committee_data=self.committee_data,
+                                          member_table=self.member_table).parsed
+                    output.append(parsed)
+                else:
+                    print ' Warning: id {} not found!'.format(id_to_parse)
 
             # Returned value records whether the file was actually parsed.
             return output
@@ -115,93 +122,7 @@ class Parser:
             con = psycopg2.connect(**self.credentials)
             self.results = parse({'con': con, 'id_inds': range(len(self.id_values))})
 
-    def _update_tables(self):
-        """ Wrapper function for creating and updating metadata tables. See functions for details. """
-        self._update_gpo_tables()
-        self._manual_hearing_table_update()
-
-    def _update_gpo_tables(self):
-        """
-
-        Function for creating hearing-level metadata files. These files provide a map between sudoc and jacket numbers
-        for hearings. Jacket numbers are contained in the file names (and resulting URLs) for each hearing. Sudocs are
-        contained in the hearing metadata files (but note that these data are often missing).
-
-        """
-        import re
-        import json
-        from itertools import chain
-
-        # Get the current tables
-        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
-
-        gpo_file_list = list(chain(*[[direc[0] + os.sep + fi for fi in direc[2] if 'json' in fi]
-                                     for direc in self.gpo_walked]))
-
-        for i, file_name in enumerate(gpo_file_list):
-            with open(file_name, 'rb') as f:
-                content = json.loads(f.read())
-            print file_name
-
-            meta = content['Hearing Info']
-
-            # If a sudoc is present, loop over sudocs and create a map between the sudoc and the hearing jacket
-            # Note that a single metadata file can have multiple sudocs, or none!
-            if meta['sudoc'] is not None:
-                sudocs = [meta['sudoc'] + ':' + meta['Congress'] + '-' + n for n in meta['Number']]
-                jacket = re.search('[0-9]+(?=\.json)', file_name).group(0)
-                for s in sudocs:
-                    sudoc_number = re.sub(' ', '', s)
-                    if sudoc_number not in sudoc_table:
-                        sudoc_table[sudoc_number] = {'jacket': jacket}
-                        jacket_table[jacket] = {'sudoc': sudoc_number}
-
-        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
-            f.write(json.dumps(sudoc_table))
-
-        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
-            f.write(json.dumps(jacket_table))
-
-    def _manual_hearing_table_update(self):
-        """
-
-        Update the hearing table according to a manually-constructed file which matches CIS numbers to sudocs, jackets,
-        and sudocs. See accompanying data files and documentation for details.
-
-        """
-        import csv
-        import json
-
-        with open(self.pwd + os.sep + 'manual_sudoc_table.csv') as f:
-            manual_table = list(csv.reader(f))[1:]
-
-        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
-        cis_number_table = self._get_current_data(self.pwd + os.sep + 'cis_number_table.json')
-
-        for row in manual_table:
-            cis_number = row[0]
-            pap_code = row[1]
-            sudoc_number = row[2]
-            jacket = row[3]
-
-            if '' not in [cis_number, sudoc_number, jacket]:
-                jacket_table[jacket] = {'CIS': cis_number, 'sudoc': sudoc_number, 'PAP_Code': pap_code}
-                sudoc_table[sudoc_number] = {'CIS': cis_number, 'jacket': jacket, 'PAP_Code': pap_code}
-                cis_number_table[cis_number] = {'sudoc': sudoc_number, 'jacket': jacket, 'PAP_Code': pap_code}
-
-        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
-            f.write(json.dumps(sudoc_table))
-
-        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
-            f.write(json.dumps(jacket_table))
-
-        with open(self.pwd + os.sep + 'cis_number_table.json', 'wb') as f:
-            f.write(json.dumps(cis_number_table))
-
-    def create_dataset(self, jackets_dates=(), types_dates=(), committee_list=(),
-                       out_name='financial', min_words=10):
+    def create_dataset(self, min_token_length=3, min_doc_length=5, min_dic_count=5):
         """
 
         Create the finished corpus file. Corpus is created using a subset of available documents, identified using the
@@ -214,171 +135,133 @@ class Parser:
         apply to each document.
 
         """
-        import re
-        import csv
-        import sys
-        import json
-        import string
-        from gensim import corpora
-        from itertools import chain
-        from datetime import datetime
-        from itertools import repeat
-        from nltk.corpus import stopwords
 
         csv.field_size_limit(sys.maxsize)
-        stopwords = stopwords.words('english')
-
-        # Get the list of available files, and some preliminary data ready for metadata extraction
-        file_list = list(chain(*[[direc[0] + os.sep + fi for fi in direc[2] if 'csv' in fi]
-                                 for direc in self.gpo_walked]))
-
-        with open(self.pwd + os.sep + 'committee_data.csv', 'rb') as f:
-            committee_table = {row[0]: {'Code': row[1], 'Chamber': row[2]} for row in csv.reader(f)}
-
-        today = datetime.now().strftime('%m%d%Y')
-
-        if len(jackets_dates) > 0:
-            jackets_to_parse = zip(*jackets_dates)[1]
-        else:
-            jackets_to_parse = ()
-
-        with open(self.pwd + os.sep + 'cis_number_table.json', 'rb') as f:
-            cis_table = json.loads(f.read())
-            jackets = [cis_table[k]['jacket'] for k in cis_table]
-            pap_codes = [cis_table[k]['PAP_Code'] for k in cis_table]
+        stop_list = stopwords.words('english')
 
         documents = []
         corpus = []
         index = []
 
-        for i, in_file in enumerate(file_list):
-            print i, in_file
-            if '#' not in in_file:
-                data_file = re.sub('csv', 'json', in_file)
+        index_keys = ['name_raw', 'name_full', 'member_id', 'party', 'state', 'majority', 'party_seniority',
+                      'jacket', 'committees', 'person_chamber', 'hearing_chamber', 'leadership', 'congress']
 
-                with open(data_file, 'rb') as f:
-                    data = json.loads(f.read())
+        if self.results:
+            for i, content in enumerate(self.results):
+                print i, content[0]['jacket']
 
-                date = data['Hearing Info']['Date']
-                committee = data['Hearing Info']['Committee']
+                for row in content:
+                    doc = [w for w in row['cleaned'].lower().translate(None, string.punctuation).split()
+                           if len(w) > min_token_length and w not in stop_list]
 
-                committee_codes = [committee_table[data['Hearing Info']['Chamber'] + '-' + c_name]['Code']
-                                   for c_name in committee]
+                    if len(doc) > min_doc_length:
+                        documents.append(doc)
+                        index.append([','.join(row[key]) if type(row[key]) == tuple else row[key]
+                                      for key in index_keys])
 
-                jacket = re.search('([0-9]+)\.csv', in_file).group(1)
-
-                # Parse if the given jacket is in the jacket table and in the list identified by jackets_to_parse.
-                if any(c_name in committee_list for c_name in committee_codes) or \
-                      (jacket in jackets and jacket in jackets_to_parse):
-
-                    if len(jackets_dates) > 0 and len(types_dates) > 0:
-                        jacket_row = [row for row in jackets_dates if row[1] == jacket][0]
-                        cis = jacket_row[0]
-
-                        cis_row = [row for row in types_dates if row[0] == cis][0]
-                        cis_year = cis_row[1]
-                        pap_code = pap_codes[jackets.index(jacket)]
-                    else:
-                        cis_year = None
-                        pap_code = None
-
-                    # apparently, jacket numbers are re-used fairly frequently (5-8% re-use or so)
-                    # this at least cuts the more recent
-                    if cis_year is None or cis_year == date[0:4]:
-                        with open(in_file, 'rb') as f:
-                            text = list(csv.reader(f))
-
-                        if len(text) > 1 and len(text[0]) > 2:
-                            for row in text:
-                                # Get metadata from the CSV parsed text
-                                speaker_name = row[0]
-                                member_id = row[2]
-                                state = row[3]
-                                speaker_type = row[4]
-                                person_chamber = row[6]
-                                speaker_chamber = row[7]
-                                majority = row[8]
-                                party_seniority = row[9]
-                                leadership = row[10]
-
-                                hearing_identifier = re.search('([0-9]+)\.csv', in_file).group(1)
-
-                                # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words < 3
-                                # characters are dropped, stopwords are dropped. After preprocessing words, documents
-                                # <= 5 words are also dropped.
-
-                                doc = [w for w in row[11].lower().translate(None, string.punctuation).split()
-                                       if len(w) > 3 and w not in stopwords]
-                                if len(doc) > 5:
-                                    index.append([speaker_name, speaker_type, member_id, date, state,
-                                                  hearing_identifier, ' '.join(committee), ' '.join(committee_codes),
-                                                  person_chamber,  speaker_chamber, majority, party_seniority,
-                                                  leadership, pap_code])
-                                    documents.append(doc)
-
-        # Preprocess, part 2. Words that occur in fewer than 10 documents, or in every document, are dropped. After
-        # these rare words are dropped, documents with less than 5 words are dropped. All other words are retained.
         dic = corpora.Dictionary(documents)
-        dic.filter_extremes(no_below=min_words, no_above=1)
+        dic.filter_extremes(no_below=min_dic_count, no_above=1)
         dic.compactify()
         print dic
+
         keep = []
         bow_list = []
         for i, doc in enumerate(documents):
             bow = dic.doc2bow(doc)
-            if len(bow) > 5:
+            if len(bow) > min_doc_length:
                 corpus.append([' '.join([' '.join(list(repeat(dic[k], times=v))) for k, v in bow])])
                 keep.append(index[i]+[len(bow)])
                 bow_list.append(bow)
 
-        # Save outputs.
-        with open(self.pwd + os.sep + 'corpus_' + today + '.csv', 'wb') as f:
-            csv.writer(f).writerows(corpus)
-        with open(self.pwd + os.sep + 'corpus_index_' + today + '.csv', 'wb') as f:
-            csv.writer(f).writerows(keep)
-
-        corpora.Dictionary.save(dic, self.pwd + os.sep + out_name + '_' + today + '.lda-c.dic')
-        corpora.BleiCorpus.serialize(fname=self.pwd + os.sep + out_name + '_' + today + '.lda-c',
-                                     corpus=bow_list, id2word=dic)
-
-    def update_tables_from_file(self, data_path):
-        """
-
-        Extra method to update sudoc/CIS/jacket indices from file, if desired. Assumed input for data_path is
-        a flat (csv) file with three items per row: [cis, sudoc, jacket]. Optionally, a fourth row with pap_code
-        can also be included.
-
-        """
-
-        import csv
-        import json
-
-        sudoc_table = self._get_current_data(self.pwd + os.sep + 'sudoc_table.json')
-        jacket_table = self._get_current_data(self.pwd + os.sep + 'jacket_table.json')
-        cis_number_table = self._get_current_data(self.pwd + os.sep + 'cis_number_table.json')
-
-        with open(data_path, 'rb') as f:
-            content = list(csv.reader(f))
-
-        for row in content:
-            cis_number = row[0]
-            sudoc_number = row[1]
-            jacket_number = row[2]
-            if len(row) > 3:
-                pap_code = row[3]
-
-            cis_number_table[cis_number] = {'sudoc': sudoc_number, 'jacket': jacket_number, 'PAP_Code': pap_code}
-            jacket_table[jacket_number] = {'sudoc': sudoc_number, 'CIS': cis_number, 'PAP_Code': pap_code}
-            sudoc_table[sudoc_number] = {'CIS': cis_number, 'jacket': jacket_number, 'PAP_Code': pap_code}
-
-        with open(self.pwd + os.sep + 'sudoc_table.json', 'wb') as f:
-            f.write(json.dumps(sudoc_table))
-
-        with open(self.pwd + os.sep + 'jacket_table.json', 'wb') as f:
-            f.write(json.dumps(jacket_table))
-
-        with open(self.pwd + os.sep + 'cis_number_table.json', 'wb') as f:
-            f.write(json.dumps(cis_number_table))
+                # for i, in_file in enumerate(file_list):
+                #     print i, in_file
+                #     if '#' not in in_file:
+                #         data_file = re.sub('csv', 'json', in_file)
+                #
+                #         with open(data_file, 'rb') as f:
+                #             data = json.loads(f.read())
+                #
+                #         date = data['Hearing Info']['Date']
+                #         committee = data['Hearing Info']['Committee']
+                #
+                #         committee_codes = [committee_table[data['Hearing Info']['Chamber'] + '-' + c_name]['Code']
+                #                            for c_name in committee]
+                #
+                #         jacket = re.search('([0-9]+)\.csv', in_file).group(1)
+                #
+                #         # Parse if the given jacket is in the jacket table and in the list identified by jackets_to_parse.
+                #         if any(c_name in committee_list for c_name in committee_codes) or \
+                #               (jacket in jackets and jacket in jackets_to_parse):
+                #
+                #             if len(jackets_dates) > 0 and len(types_dates) > 0:
+                #                 jacket_row = [row for row in jackets_dates if row[1] == jacket][0]
+                #                 cis = jacket_row[0]
+                #
+                #                 cis_row = [row for row in types_dates if row[0] == cis][0]
+                #                 cis_year = cis_row[1]
+                #                 pap_code = pap_codes[jackets.index(jacket)]
+                #             else:
+                #                 cis_year = None
+                #                 pap_code = None
+                #
+                #             # apparently, jacket numbers are re-used fairly frequently (5-8% re-use or so)
+                #             # this at least cuts the more recent
+                #             if cis_year is None or cis_year == date[0:4]:
+                #                 with open(in_file, 'rb') as f:
+                #                     text = list(csv.reader(f))
+                #
+                #                 if len(text) > 1 and len(text[0]) > 2:
+                #                     for row in text:
+                #                         # Get metadata from the CSV parsed text
+                #                         speaker_name = row[0]
+                #                         member_id = row[2]
+                #                         state = row[3]
+                #                         speaker_type = row[4]
+                #                         person_chamber = row[6]
+                #                         speaker_chamber = row[7]
+                #                         majority = row[8]
+                #                         party_seniority = row[9]
+                #                         leadership = row[10]
+                #
+                #                         hearing_identifier = re.search('([0-9]+)\.csv', in_file).group(1)
+                #
+                #                         # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words < 3
+                #                         # characters are dropped, stopwords are dropped. After preprocessing words, documents
+                #                         # <= 5 words are also dropped.
+                #
+                #                         doc = [w for w in row[11].lower().translate(None, string.punctuation).split()
+                #                                if len(w) > 3 and w not in stop_list]
+                #                         if len(doc) > 5:
+                #                             index.append([speaker_name, speaker_type, member_id, date, state,
+                #                                           hearing_identifier, ' '.join(committee), ' '.join(committee_codes),
+                #                                           person_chamber,  speaker_chamber, majority, party_seniority,
+                #                                           leadership, pap_code])
+                #                             documents.append(doc)
+                #
+                # # Preprocess, part 2. Words that occur in fewer than 10 documents, or in every document, are dropped. After
+                # # these rare words are dropped, documents with less than 5 words are dropped. All other words are retained.
+                # dic = corpora.Dictionary(documents)
+                # dic.filter_extremes(no_below=min_words, no_above=1)
+                # dic.compactify()
+                # print dic
+                # keep = []
+                # bow_list = []
+                # for i, doc in enumerate(documents):
+                #     bow = dic.doc2bow(doc)
+                #     if len(bow) > 5:
+                #         corpus.append([' '.join([' '.join(list(repeat(dic[k], times=v))) for k, v in bow])])
+                #         keep.append(index[i]+[len(bow)])
+                #         bow_list.append(bow)
+                #
+                # # Save outputs.
+                # with open(self.pwd + os.sep + 'corpus_' + today + '.csv', 'wb') as f:
+                #     csv.writer(f).writerows(corpus)
+                # with open(self.pwd + os.sep + 'corpus_index_' + today + '.csv', 'wb') as f:
+                #     csv.writer(f).writerows(keep)
+                #
+                # corpora.Dictionary.save(dic, self.pwd + os.sep + out_name + '_' + today + '.lda-c.dic')
+                # corpora.BleiCorpus.serialize(fname=self.pwd + os.sep + out_name + '_' + today + '.lda-c',
+                #                              corpus=bow_list, id2word=dic)
 
 
 class ParseHearing:
@@ -452,22 +335,22 @@ class ParseHearing:
             self.parsed = []
 
         print self.entry['id']
-        for row in self.parsed:
-            print row['name_raw'], row['name_full'], row['jacket'], row['committees']
-            print row['cleaned']
-            print '------------'
-        print set(row['name_raw'] for row in self.parsed if row['name_full'] == ('NA',))
-        raw_input('')
+        # for row in self.parsed:
+        #     print row['name_raw'], row['name_full'], row['jacket'], row['committees']
+        #     print row['cleaned']
+        #     print '------------'
+        # print set(row['name_raw'] for row in self.parsed if row['name_full'] == ('NA',))
+        # raw_input('')
 
-    def _name_search(self, string):
+    def _name_search(self, name_string):
         """ Helper function, which sorts through the hearing text and finds all names that start statements. """
         import re
 
         # VERY complicated name regex, which is tough to simplify, since names aren't consistent. Modify with care.
-        matches = re.finditer('(?<=    )[A-Z][a-z]+(\.)? ([A-Z][A-Za-z\'][-A-Za-z \[\]\']*?)*' +
+        matches = re.finditer('(?<= {4})[A-Z][a-z]+(\.)? ([A-Z][A-Za-z\'][-A-Za-z \[\]\']*?)*' +
                               '[A-Z\[\]][-A-Za-z\[\]]{1,100}(?=\.([- ]))' +
-                              '|(?<=    )Voice(?=\.([- ]))' +
-                              '|(?<=    )The Chair(man|woman)(?=\.([- ]))', string[0:self.max_search_length])
+                              '|(?<= {4})Voice(?=\.([- ]))' +
+                              '|(?<= {4})The Chair(man|woman)(?=\.([- ]))', name_string[0:self.max_search_length])
         for i, match in enumerate(matches):
             if match is not None and len(match.group(0).split()) <= 5 and \
                     re.search('^(' + '|'.join(self.prefixes) + ')', match.group(0)) is not None:
@@ -492,8 +375,8 @@ class ParseHearing:
             openings = [regex.start() for regex in o]
         else:
             openings = [self._name_search(self.entry['transcript']).start() - 10]
-        c = list(re.finditer('([\[\(]?Whereupon[^\r\n]*?)?the\s+(Committee|Subcommittee|hearing|forum|panel)s?.*?' +
-                             '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\]\)]?|' +
+        c = list(re.finditer('([\[(]?Whereupon[^\r\n]*?)?the\s+(Committee|Subcommittee|hearing|forum|panel)s?.*?' +
+                             '(was|were)?\s+(adjourned|recessed)[\r\n]*?[\])]?|' +
                              '\[Additional material follows\.?\]', self.entry['transcript'], flags=re.I))
 
         if len(c) > 0:
@@ -521,9 +404,9 @@ class ParseHearing:
         """
         import re
 
-        cutpoints = []
+        cuts = []
         for opening, closing in self.session_cutpoints:
-            newlines = list(re.finditer('\n+    ', self.entry['transcript'][opening:closing]))
+            newlines = list(re.finditer('\n+ {4}', self.entry['transcript'][opening:closing]))
             for i, nl in enumerate(newlines):
                 if i < len(newlines) - 1:
                     line = self.entry['transcript'][nl.start() + opening:newlines[i + 1].start() + opening]
@@ -536,16 +419,16 @@ class ParseHearing:
                 offset = nl.start() + opening
 
                 if s is not None:
-                    cutpoints.append([s.start() + offset, s.end() + offset])
+                    cuts.append([s.start() + offset, s.end() + offset])
 
-            cutpoints.append([closing])
+            cuts.append([closing])
 
-        return cutpoints
+        return cuts
 
     def _segment_transcript(self):
         import re
 
-        def clean_statement(string):
+        def clean_statement(statement_string):
             """
 
             Helper function to clean undesired text out of statements. Currently cleans procedural text, with an option
@@ -557,21 +440,21 @@ class ParseHearing:
                           '[\[(].*?[\r\n]*.*?following.*?(was|were).*?[\r\n]*.*?[\r\n]*.*?[\])]|' +
                           '[\[(].*?[\r\n]*.*?follows?[:.].*?[\r\n]*[^<]*?[\])])' +
                           '(?!\s+[<|\[]GRAPHIC)',
-                          string, re.I)
+                          statement_string, re.I)
 
             if s is not None:
-                string = string[0:s.start()]
+                statement_string = statement_string[0:s.start()]
 
-            string = re.sub('---------+[\n\r]+.*?[\n\r]+---------+|\s*<[^\r\n]+>\s*', '', string, flags=re.DOTALL)
-            string = re.sub('\[.*?[\n\r]*?.*?\]', '', string)
-            string = re.sub('(OPENING )?STATEMENT.*', '', string, flags=re.DOTALL)
+            statement_string = re.sub('---------+[\n\r]+.*?[\n\r]+---------+|\s*<[^\r\n]+>\s*', '', statement_string,
+                                      flags=re.DOTALL)
+            statement_string = re.sub('\[.*?[\n\r]*?.*?\]', '', statement_string)
+            statement_string = re.sub('(OPENING )?STATEMENT.*', '', statement_string, flags=re.DOTALL)
 
-            string = string.strip()
+            statement_string = statement_string.strip()
 
-            return string
+            return statement_string
 
-        def process_name(string):
-            name_str = string
+        def process_name(name_str):
             name_str = re.sub('\s*\[[a-z ]*?\]\s*', '', name_str)
             state_matches = [st for st in states_long if st in name_str.lower()]
             if len(state_matches) == 1:
@@ -646,21 +529,21 @@ class ParseHearing:
         import re
         from string import punctuation
 
-        def find_last_name(string):
+        def find_last_name(name_string):
             """ Helper function to find last names in name strings. """
             import re
 
             punctuation_list = '!"#$%&\'()*+,./:;<=>?@[\\]^_`{|}~'
 
             for pre in self.prefixes:
-                string = re.sub('^' + pre, '', string)
+                name_string = re.sub('^' + pre, '', name_string)
 
-            string = re.sub('\[.*?\]', '', string)
-            string = re.sub('^\s*|\s*$', '', string)
-            string = string.translate(None, punctuation_list)
-            string = string.strip()
+            name_string = re.sub('\[.*?\]', '', name_string)
+            name_string = re.sub('^\s*|\s*$', '', name_string)
+            name_string = name_string.translate(None, punctuation_list)
+            name_string = name_string.strip()
 
-            return string
+            return name_string
 
         def find_member_list():
             """
@@ -692,8 +575,8 @@ class ParseHearing:
 
             """
             start = self.statement_cutpoints[0][0]
-            chair_search = re.search('([-A-Za-z\'\n]+)[,]?( (jr|[ivx]+))?[,\. \n]*?\s+' +
-                                     '[\(\[]?(chairman|chairwoman)\s*(of|\)|\]|,)',
+            chair_search = re.search('([-A-Za-z\'\n]+)[,]?( (jr|[ivx]+))?[,. \n]*?\s+' +
+                                     '[(\[]?(chairman|chairwoman)\s*(of|\)|\]|,)',
                                      self.entry['transcript'][start - 1000:start], flags=re.I)
             if chair_search is not None:
                 return re.sub('\s', '', chair_search.group(1))
@@ -896,5 +779,5 @@ class ParseHearing:
 
             self.parsed[i].update(
                 {'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
-                                   'person_chamber': person_chamber, 'party_seniority': party_seniority,
+                 'person_chamber': person_chamber, 'party_seniority': party_seniority,
                  'leadership': leadership, 'committees': tuple(committees)})

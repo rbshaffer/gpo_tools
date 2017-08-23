@@ -10,5 +10,6 @@ setup(
     author='Robert Shaffer',
     author_email='rbshaffer@utexas.edu',
     description='Parsing and scraping tools for GPO hearings data.',
-    package_data={'': ['data/committee_data.csv']}
+    package_data={'': ['data/committee_data.csv', 'data/house_assignments_103-115-1.csv',
+                       'data/senate_assignments_103-115-1.csv', 'data/stewart_notes.txt']}
 )

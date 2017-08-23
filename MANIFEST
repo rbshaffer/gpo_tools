@@ -4,3 +4,6 @@ gpo_tools/__init__.py
 gpo_tools/parser.py
 gpo_tools/scraper.py
 gpo_tools/data/committee_data.csv
+gpo_tools/data/house_assignments_103-115-1.csv
+gpo_tools/data/senate_assignments_103-115-1.csv
+gpo_tools/data/stewart_notes.txt

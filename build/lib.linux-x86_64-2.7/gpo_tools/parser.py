@@ -894,6 +894,7 @@ class ParseHearing:
             if person_chamber == '':
                 person_chamber = hearing_chamber
 
-            self.parsed[i].update({'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
+            self.parsed[i].update(
+                {'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
                                    'person_chamber': person_chamber, 'party_seniority': party_seniority,
-                                   'leadership': leadership, 'committees': tuple(committees)})
+                 'leadership': leadership, 'committees': tuple(committees)})
