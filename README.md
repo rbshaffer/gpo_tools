@@ -5,7 +5,7 @@ The ``gpo_tools`` library addresses both of these issues. The library has two pr
  - ``gpo_tools.scrape.Scraper`` downloads data from GPO's individual hearing pages, and saves information to a PostgreSQL database for convenient querying and commpact storage. 
  - ``gpo_tools.parse.Parser`` segments hearing transcripts into individual statements and, when possible, assigns speaker-level meta to each statement.
 
-# Data Structure
+## Data Structure
 Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis:
 
 ```
