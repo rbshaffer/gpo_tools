@@ -7,7 +7,8 @@ This library provides tools designed to solve both of these problems. Briefly, t
 ```
 [
   {
-      'cleaned': "The subcommittee will now come to order.\n    I would like to first welcome Mr. Hale and Mr. Hockey of \nthe EPA. We are delighted to have you here today.\n    And today's hearing focuses on ...",
+      'cleaned': "The subcommittee will now come to order.\n    I would like to first welcome Mr. Hale and Mr. Hockey of 
+                  the EPA. We are delighted to have you here today.\n    And today's hearing focuses on ...",
       'committees': ('128',),
       'congress': 108,
       'hearing_chamber': 'HOUSE',
