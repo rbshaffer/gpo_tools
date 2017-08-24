@@ -1,7 +1,12 @@
 # gpo_tools
 The Government Publishing Office (GPO)'s [congressional hearings](https://www.gpo.gov/fdsys/browse/collection.action?collectionCode=CHRG) dataset offers an extensive collection of hearing texts and metadata. Unfortunately, the GPO's website lacks batch-downloading and querying tools, and hearing transcripts offered by the site lack embedded metadata denoting statement breakpoints or speaker-level information (e.g. political party or committee seniority). As a result, analyzing the GPO's data *en masse* is impractical.
 
-The ``gpo_tools`` library solves all of these problems. ``gpo_tools.scrape.Scraper`` downloads data from GPO's individual hearing pages, and saves information to a PostgreSQL database for convenient querying and commpact storage. ``Parser`` class , which segments hearing transcripts into individual statements and, when possible, assigns speaker-level meta to each statement.  Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis:
+The ``gpo_tools`` library addresses both of these issues. The library has two primary classes:
+ - ``gpo_tools.scrape.Scraper`` downloads data from GPO's individual hearing pages, and saves information to a PostgreSQL database for convenient querying and commpact storage. 
+ - ``gpo_tools.parse.Parser`` segments hearing transcripts into individual statements and, when possible, assigns speaker-level meta to each statement.
+
+# Data Structure
+Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis:
 
 ```
 [
