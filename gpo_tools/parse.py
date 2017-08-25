@@ -1,10 +1,13 @@
+import cStringIO
+import codecs
 import csv
+import os
 import re
 import string
 import sys
+from datetime import datetime
 from itertools import chain
 from itertools import repeat
-from random import shuffle
 
 import pkg_resources
 import psycopg2
@@ -67,15 +70,13 @@ class Parser:
 
         else:
             # do some basic checking of user-inputted id values - not 100% comprehensive but should fairly broad
-            if type(id_values) != list or any([type(id_value) != str for id_value in id_values]) or \
+            if type(id_values) not in (list, tuple) or any([type(id_value) != str for id_value in id_values]) or \
                     any([re.search('CHRG-[0-9]+[a-z]+[0-9]+', id_value) is None for id_value in id_values]):
 
                 raise ValueError(""" id_values should be a list of strings, following the naming convention used by the
                                      GPO (e.g. \'CHRG-113jhrg79942\'). """)
             else:
                 self.id_values = id_values
-
-        shuffle(self.id_values)
 
     def parse_gpo_hearings(self, n_cores=4):
         """ Primary parser function. Wraps and parallelizes methods described elsewhere in this file. """
@@ -110,8 +111,8 @@ class Parser:
 
         n_ids = len(self.id_values)
 
-        # if n_ids is reasonably large (say >1000), parallelize; if not, just do in serial
-        if n_ids > 100000:
+        # if n_ids is reasonably large (say >100), parallelize; if not, just do in serial
+        if n_ids > 100:
             to_analyze = [{'con': psycopg2.connect(**self.credentials),
                            'id_inds': range(i * n_ids / n_cores, (i + 1) * n_ids / n_cores)}
                           for i in range(n_cores)]
@@ -122,7 +123,8 @@ class Parser:
             con = psycopg2.connect(**self.credentials)
             self.results = parse({'con': con, 'id_inds': range(len(self.id_values))})
 
-    def create_dataset(self, min_token_length=3, min_doc_length=5, min_dic_count=5):
+    def create_dataset(self, out_dir, out_name='corpus', min_token_length=3, min_doc_length=5, min_dic_count=5,
+                       additional_meta=None, additional_meta_labels=None):
         """
 
         Create the finished corpus file. Corpus is created using a subset of available documents, identified using the
@@ -136,6 +138,16 @@ class Parser:
 
         """
 
+        # some quick type-checking up-front
+        if additional_meta and (type(additional_meta not in (list, tuple)) or
+                                        len(additional_meta) != len(self.results)):
+            raise ValueError('Additional metadata should be a list or tuple, with one entry for each parsed hearing!')
+
+        if additional_meta_labels and additional_meta and \
+                (type(additional_meta_labels) not in (list, tuple) or
+                         len(additional_meta_labels) != len(additional_meta[0])):
+            raise ValueError('Additional metadata labels should have the same number of entries as the metadata!')
+
         csv.field_size_limit(sys.maxsize)
         stop_list = stopwords.words('english')
 
@@ -146,32 +158,57 @@ class Parser:
         index_keys = ['name_raw', 'name_full', 'member_id', 'party', 'state', 'majority', 'party_seniority',
                       'jacket', 'committees', 'person_chamber', 'hearing_chamber', 'leadership', 'congress']
 
-        if self.results:
+        # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words shorter than the cutoff are
+        # dropped, stopwords are dropped. After preprocessing, documents shorter than the cutoff are dropped
+        if not self.results:
+            print 'No parsed results found, so no processing will be done.'
+        else:
             for i, content in enumerate(self.results):
-                print i, content[0]['jacket']
+                if len(content) > 1:
+                    print i, content[0]['jacket']
+                    for row in content:
+                        doc = [w for w in row['cleaned'].lower().translate(None, string.punctuation).split()
+                               if len(w) > min_token_length and w not in stop_list]
 
-                for row in content:
-                    doc = [w for w in row['cleaned'].lower().translate(None, string.punctuation).split()
-                           if len(w) > min_token_length and w not in stop_list]
+                        if len(doc) > min_doc_length:
+                            documents.append(doc)
+                            index_row = [','.join(row[key]) if type(row[key]) == tuple else row[key]
+                                         for key in index_keys]
+                            if additional_meta:
+                                index_row += additional_meta[i]
 
-                    if len(doc) > min_doc_length:
-                        documents.append(doc)
-                        index.append([','.join(row[key]) if type(row[key]) == tuple else row[key]
-                                      for key in index_keys])
+                            index.append(index_row)
 
-        dic = corpora.Dictionary(documents)
-        dic.filter_extremes(no_below=min_dic_count, no_above=1)
-        dic.compactify()
-        print dic
+            dic = corpora.Dictionary(documents)
+            dic.filter_extremes(no_below=min_dic_count, no_above=1)
+            dic.compactify()
+            print dic
 
-        keep = []
-        bow_list = []
-        for i, doc in enumerate(documents):
-            bow = dic.doc2bow(doc)
-            if len(bow) > min_doc_length:
-                corpus.append([' '.join([' '.join(list(repeat(dic[k], times=v))) for k, v in bow])])
-                keep.append(index[i]+[len(bow)])
-                bow_list.append(bow)
+            keep = []
+            bow_list = []
+
+            for i, doc in enumerate(documents):
+                bow = dic.doc2bow(doc)
+                if len(bow) > min_doc_length:
+                    corpus.append([' '.join([' '.join(list(repeat(dic[k], times=v))) for k, v in bow])])
+                    keep.append([str(val) for val in index[i]] + [str(len(bow))])
+                    bow_list.append(bow)
+
+            today = datetime.today().strftime('%Y-%m-%d')
+            with open(out_dir + os.sep + out_name + '_' + today + '.csv', 'w') as f:
+                UnicodeWriter(f).writerows(corpus)
+
+            with open(out_dir + os.sep + out_name + '_index_' + today + '.csv', 'w') as f:
+                header = index_keys
+                if additional_meta_labels:
+                    header += additional_meta_labels
+
+                UnicodeWriter(f).writerow(header + ['word_count'])
+                UnicodeWriter(f).writerows(keep)
+
+            corpora.Dictionary.save(dic, out_dir + os.sep + out_name + '_' + today + '.lda-c.dic')
+            corpora.BleiCorpus.serialize(fname=out_dir + os.sep + out_name + '_' + today + '.lda-c',
+                                         corpus=bow_list, id2word=dic)
 
                 # for i, in_file in enumerate(file_list):
                 #     print i, in_file
@@ -781,3 +818,33 @@ class ParseHearing:
                 {'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
                  'person_chamber': person_chamber, 'party_seniority': party_seniority,
                  'leadership': leadership, 'committees': tuple(committees)})
+
+
+class UnicodeWriter:
+    """
+    A CSV writer which will write rows to CSV file "f",
+    which is encoded in the given encoding.
+    """
+
+    def __init__(self, f, dialect=csv.excel, encoding="utf-8", **kwds):
+        # Redirect output to a queue
+        self.queue = cStringIO.StringIO()
+        self.writer = csv.writer(self.queue, dialect=dialect, **kwds)
+        self.stream = f
+        self.encoder = codecs.getincrementalencoder(encoding)()
+
+    def writerow(self, row):
+        self.writer.writerow([s.encode("utf-8") for s in row])
+        # Fetch UTF-8 output from the queue ...
+        data = self.queue.getvalue()
+        data = data.decode("utf-8")
+        # ... and reencode it into the target encoding
+        data = self.encoder.encode(data)
+        # write to the target stream
+        self.stream.write(data)
+        # empty queue
+        self.queue.truncate(0)
+
+    def writerows(self, rows):
+        for row in rows:
+            self.writerow(row)
