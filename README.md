@@ -4,9 +4,8 @@ The Government Publishing Office (GPO)'s [congressional hearings](https://www.gp
 The ``gpo_tools`` library addresses both of these issues. The library has two primary classes:
  - ``gpo_tools.scrape.Scraper`` downloads data from GPO's individual hearing pages, and saves information to a PostgreSQL database for convenient querying and commpact storage. 
  - ``gpo_tools.parse.Parser`` segments hearing transcripts into individual statements and, when possible, assigns speaker-level meta to each statement.
-
-## Data Structure
-Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis:
+ 
+Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis. An example output line reads as follows:
 
 ```
 [
@@ -35,3 +34,13 @@ Combining these functions gives a dataset of congressional hearing statements su
   ...
 ]
 ```
+ 
+## Scraping
+For first-time users, initialize the database as follows:
+```
+>> from gpo_tools.scrape import Scraper
+>> scraper = Scraper(db = 'your_db', user = 'your_username', password = 'your_password', 
+                     host = 'localhost', update_stewart_meta = True)
+```
+
+``db``, ``user``, and ``password`` should give valid credentials to an empty, preestablished PostgreSQL database, created through the method of your chosing and hosted by ``host`` (``localhost`` for most users). If PostgreSQL is not already available on your machine, installation instructions for OSX and Windows are available [here](https://www.postgresql.org/download/macosx/) and [here](https://www.postgresql.org/download/windows/). You can create a new database using many methods, but the [createdb](https://www.postgresql.org/docs/9.1/static/app-createdb.html) command line utility may be easiest.
