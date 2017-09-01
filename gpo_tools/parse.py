@@ -139,7 +139,7 @@ class Parser:
         """
 
         # some quick type-checking up-front
-        if additional_meta and (type(additional_meta not in (list, tuple)) or
+        if additional_meta and (type(additional_meta) not in (list, tuple) or
                                         len(additional_meta) != len(self.results)):
             raise ValueError('Additional metadata should be a list or tuple, with one entry for each parsed hearing!')
 
@@ -156,7 +156,8 @@ class Parser:
         index = []
 
         index_keys = ['name_raw', 'name_full', 'member_id', 'party', 'state', 'majority', 'party_seniority',
-                      'jacket', 'committees', 'person_chamber', 'hearing_chamber', 'leadership', 'congress']
+                      'jacket', 'committees', 'person_chamber', 'hearing_chamber', 'leadership', 'congress',
+                      'date']
 
         # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words shorter than the cutoff are
         # dropped, stopwords are dropped. After preprocessing, documents shorter than the cutoff are dropped
@@ -172,7 +173,7 @@ class Parser:
 
                         if len(doc) > min_doc_length:
                             documents.append(doc)
-                            index_row = [','.join(row[key]) if type(row[key]) == tuple else row[key]
+                            index_row = [','.join(row[key]) if type(row[key]) in (tuple, list) else row[key]
                                          for key in index_keys]
                             if additional_meta:
                                 index_row += additional_meta[i]
@@ -209,96 +210,6 @@ class Parser:
             corpora.Dictionary.save(dic, out_dir + os.sep + out_name + '_' + today + '.lda-c.dic')
             corpora.BleiCorpus.serialize(fname=out_dir + os.sep + out_name + '_' + today + '.lda-c',
                                          corpus=bow_list, id2word=dic)
-
-                # for i, in_file in enumerate(file_list):
-                #     print i, in_file
-                #     if '#' not in in_file:
-                #         data_file = re.sub('csv', 'json', in_file)
-                #
-                #         with open(data_file, 'rb') as f:
-                #             data = json.loads(f.read())
-                #
-                #         date = data['Hearing Info']['Date']
-                #         committee = data['Hearing Info']['Committee']
-                #
-                #         committee_codes = [committee_table[data['Hearing Info']['Chamber'] + '-' + c_name]['Code']
-                #                            for c_name in committee]
-                #
-                #         jacket = re.search('([0-9]+)\.csv', in_file).group(1)
-                #
-                #         # Parse if the given jacket is in the jacket table and in the list identified by jackets_to_parse.
-                #         if any(c_name in committee_list for c_name in committee_codes) or \
-                #               (jacket in jackets and jacket in jackets_to_parse):
-                #
-                #             if len(jackets_dates) > 0 and len(types_dates) > 0:
-                #                 jacket_row = [row for row in jackets_dates if row[1] == jacket][0]
-                #                 cis = jacket_row[0]
-                #
-                #                 cis_row = [row for row in types_dates if row[0] == cis][0]
-                #                 cis_year = cis_row[1]
-                #                 pap_code = pap_codes[jackets.index(jacket)]
-                #             else:
-                #                 cis_year = None
-                #                 pap_code = None
-                #
-                #             # apparently, jacket numbers are re-used fairly frequently (5-8% re-use or so)
-                #             # this at least cuts the more recent
-                #             if cis_year is None or cis_year == date[0:4]:
-                #                 with open(in_file, 'rb') as f:
-                #                     text = list(csv.reader(f))
-                #
-                #                 if len(text) > 1 and len(text[0]) > 2:
-                #                     for row in text:
-                #                         # Get metadata from the CSV parsed text
-                #                         speaker_name = row[0]
-                #                         member_id = row[2]
-                #                         state = row[3]
-                #                         speaker_type = row[4]
-                #                         person_chamber = row[6]
-                #                         speaker_chamber = row[7]
-                #                         majority = row[8]
-                #                         party_seniority = row[9]
-                #                         leadership = row[10]
-                #
-                #                         hearing_identifier = re.search('([0-9]+)\.csv', in_file).group(1)
-                #
-                #                         # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words < 3
-                #                         # characters are dropped, stopwords are dropped. After preprocessing words, documents
-                #                         # <= 5 words are also dropped.
-                #
-                #                         doc = [w for w in row[11].lower().translate(None, string.punctuation).split()
-                #                                if len(w) > 3 and w not in stop_list]
-                #                         if len(doc) > 5:
-                #                             index.append([speaker_name, speaker_type, member_id, date, state,
-                #                                           hearing_identifier, ' '.join(committee), ' '.join(committee_codes),
-                #                                           person_chamber,  speaker_chamber, majority, party_seniority,
-                #                                           leadership, pap_code])
-                #                             documents.append(doc)
-                #
-                # # Preprocess, part 2. Words that occur in fewer than 10 documents, or in every document, are dropped. After
-                # # these rare words are dropped, documents with less than 5 words are dropped. All other words are retained.
-                # dic = corpora.Dictionary(documents)
-                # dic.filter_extremes(no_below=min_words, no_above=1)
-                # dic.compactify()
-                # print dic
-                # keep = []
-                # bow_list = []
-                # for i, doc in enumerate(documents):
-                #     bow = dic.doc2bow(doc)
-                #     if len(bow) > 5:
-                #         corpus.append([' '.join([' '.join(list(repeat(dic[k], times=v))) for k, v in bow])])
-                #         keep.append(index[i]+[len(bow)])
-                #         bow_list.append(bow)
-                #
-                # # Save outputs.
-                # with open(self.pwd + os.sep + 'corpus_' + today + '.csv', 'wb') as f:
-                #     csv.writer(f).writerows(corpus)
-                # with open(self.pwd + os.sep + 'corpus_index_' + today + '.csv', 'wb') as f:
-                #     csv.writer(f).writerows(keep)
-                #
-                # corpora.Dictionary.save(dic, self.pwd + os.sep + out_name + '_' + today + '.lda-c.dic')
-                # corpora.BleiCorpus.serialize(fname=self.pwd + os.sep + out_name + '_' + today + '.lda-c',
-                #                              corpus=bow_list, id2word=dic)
 
 
 class ParseHearing:
@@ -372,12 +283,6 @@ class ParseHearing:
             self.parsed = []
 
         print self.entry['id']
-        # for row in self.parsed:
-        #     print row['name_raw'], row['name_full'], row['jacket'], row['committees']
-        #     print row['cleaned']
-        #     print '------------'
-        # print set(row['name_raw'] for row in self.parsed if row['name_full'] == ('NA',))
-        # raw_input('')
 
     def _name_search(self, name_string):
         """ Helper function, which sorts through the hearing text and finds all names that start statements. """
@@ -540,12 +445,13 @@ class ParseHearing:
                     hearing_chamber = None
 
                 congress = self.entry['congress']
+                date = self.entry['date']
 
                 statement = self.entry['transcript'][cut[1] + 2:self.statement_cutpoints[i + 1][0]]
                 cleaned = clean_statement(statement)
 
                 output.append({'name_raw': name, 'name_full': None, 'member_id': None, 'state': state, 'party': None,
-                               'committees': committees, 'person_chamber': None,
+                               'committees': committees, 'person_chamber': None, 'date': date.strftime('%m-%d-%Y'),
                                'hearing_chamber': hearing_chamber, 'majority': None, 'party_seniority': None,
                                'leadership': None, 'congress': congress, 'jacket': self.entry['id'],
                                'cleaned': cleaned})
@@ -661,23 +567,6 @@ class ParseHearing:
             #####################################################################
             # First, check to see if there's a member in the member table with a matching name, who also served on
             # the same committee in the same congress
-            #
-            # if name == 'Ms. Brown-Waite':
-            #     print name_last
-            #     print [n_tuple for n_tuple in self.member_table
-            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
-            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])]
-            #     print [n_tuple for n_tuple in self.member_table
-            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
-            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
-            #            and congress in self.member_table[n_tuple]]
-            #     print [n_tuple for n_tuple in self.member_table
-            #            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
-            #                    re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
-            #            and congress in self.member_table[n_tuple]
-            #            and any([c in self.member_table[n_tuple][congress]
-            #                     for c in committees]) is True]
-            #     raw_input('')
 
             member_table_matches = [n_tuple for n_tuple in self.member_table
                                     if any([re.sub('\s|jr\.?', '',

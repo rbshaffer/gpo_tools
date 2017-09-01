@@ -133,7 +133,7 @@ class Scraper:
                     return ''
 
             # gathering a few unusual variables
-            uri = [l.string for l in meta_html.find_all('identifier') if l.get('type') == 'uri'][0]
+            uri = [link.string for link in meta_html.find_all('identifier') if link.get('type') == 'uri'][0]
             congress = re.search('(?<=-)[0-9]+', uri).group(0)
 
             committee_meta = meta_html.find_all('congcommittee')
@@ -184,7 +184,7 @@ class Scraper:
             import re
 
             member_dictionary = {}
-            member_elements = [l for l in meta_html.find_all('congmember')]
+            member_elements = [link for link in meta_html.find_all('congmember')]
 
             # loop over all of the member elements in a given page, and get relevant data
             for member in member_elements:
@@ -194,7 +194,7 @@ class Scraper:
                 bio_id = member.get('bioguideid')
 
                 name_elements = member.find_all('name')
-                name_parsed = [l.string for l in name_elements if l.get('type') == 'parsed'][0]
+                name_parsed = [link.string for link in name_elements if link.get('type') == 'parsed'][0]
                 state_long = re.search('(?<= of ).*', name_parsed).group(0)
 
                 member_dictionary[name_parsed] = {'Name': name_parsed,
