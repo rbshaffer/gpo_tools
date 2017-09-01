@@ -53,7 +53,38 @@ Once the ``Scraper`` instance has been intialized, downloading data is straightf
 ```
 >> scraper.scrape()
 ```
-Unfortunately, the GPO's website is complex and slow, so scraping all available links may take some time. Make sure you have a stable internet connection, particularly if this is your first time running ``scrape()``. If possible, ``scrape()`` will attempt to restart itself in case of connection issues, but you may need to manually restart the function several times during this process.
+Unfortunately, the GPO's website slow, so scraping all available links may take some time. Make sure you have a stable internet connection, particularly if this is your first time running ``scrape()``. If possible, ``scrape()`` will attempt to restart itself in case of connection issues, but you may need to manually restart the function several times during this process.
 
-To update an existing database, simply call ``Scraper.scrape()`` on a ``Scraper`` instance initialized with a preestablished database. This will take some time, since ``scrape()`` will need to re-crawl the GPO's website, but should be relatively quick.
+To update an existing database, simply call ``Scraper.scrape()`` on a ``Scraper`` instance initialized with a preestablished database. This will take some time, since ``scrape()`` will need to re-crawl the GPO's website, but should be much faster than a new scraping effort.
 
+## Parsing
+### Initialization
+Hearing transcripts are delivered by the GPO as plain-text documents, with no embedded metadata or structure. The ``gpo_tools.parse.Parser`` class handles both of these issues through a series of rules-based matching and segmentation functions. In the financial hearings dataset used in [Shaffer (2017)](https://rbshaffer.github.io/_includes/cognitive-load-issue.pdf), these matching functions successfully assigned metadata to approximately 87% of hearing statements.
+
+To initialize the parser, simply provide the same login credentials used for the ``Scraper`` class:
+
+```
+>> from gpo_tools.parse import Parser
+>> parser = Parser(db = 'your_db', user = 'your_username', 
+                   password = 'your_password', host = 'localhost')
+```
+
+By default, the ``Parser`` class will attempt to parse all hearings in the dataset. To specify a subset instead, use the following optional argument:
+
+```
+>> ids_to_parse = ['CHRG-115hhrg24325', 'CHRG-115hhrg24324']
+>> parser = Parser(db = 'your_db', user = 'your_username', 
+                   password = 'your_password', host = 'localhost',
+                   id_values = ids_to_parse)
+```
+
+ID values specified in this fashion should correspond to the jacket numbers used to identify hearings in the GPO's website.
+
+### Processing
+To run the parser, simply call the wrapper function:
+```
+>> parser.parse_gpo_hearings(n_cores=4)
+```
+By default, the parser function will run in parallel. This option can be disabled by setting ``ncores = 1``. 
+
+Outputs will be saved to the ``parser.results`` slot, which can be saved to disk using the method of your choice. 
