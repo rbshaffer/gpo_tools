@@ -36,6 +36,9 @@ Combining these functions gives a dataset of congressional hearing statements su
 ```
  
 ## Scraping
+### Versioning
+``gpo_tools`` is currently built for Python 3.x. 
+
 ### Getting Started
 For first-time users, initialize a ``Scraper`` instance as follows:
 ```
@@ -88,3 +91,18 @@ To run the parser, simply call the wrapper function:
 By default, the parser function will run in parallel. This option can be disabled by setting ``ncores = 1``. 
 
 Outputs will be saved to the ``parser.results`` slot, which can be saved to disk using the method of your choice. 
+
+## Citation
+If you use ``gpo_tools`` in your own work, please cite the following:
+
+```
+@article{shaffer2017cognitive,
+  title={Cognitive load and issue engagement in congressional discourse},
+  author={Shaffer, Robert},
+  journal={Cognitive Systems Research},
+  volume={44},
+  pages={89--99},
+  year={2017},
+  publisher={Elsevier}
+}
+```
