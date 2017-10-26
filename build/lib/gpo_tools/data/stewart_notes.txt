@@ -1,0 +1,26 @@
+HOUSE
+9813, 10714, 11546: ID should be 21110, not 21100
+9840, 10695, 11526: State should be ID, not IN
+6458: State should be CA, not IL, and state code should be 71, not 21
+10098, 10591, 10928: State should be 'WI', not 'WA' or 'OH'
+9997: State should be 'WY', not 'WI'
+10669, 11498: ID should be 21351, not 21315
+7965: ID should be 20917, not 39310
+10583: ID should be 21323, not 21345
+10121, 10992, 11780: State should be 'NH', not 'OH'
+9484: ID should be 21147, not 21174
+10035, 10884: State should be 'SC', not 'NC'
+
+SENATE
+356: State should be HI, not OK, and state code should be 82, not 53
+3229: State should be CA, not WI, and state code should be 71, not 25
+4482, 4908, 5343: State should be NV, not NM, and state code should be 65, not 66
+4191, 4629, 5054: State should be IN, not RN
+4218, 4656, 5081: ID should be 41303, not 20930
+4500, 4925, 5358: State should be 'AZ', not 'AL'
+4949, 5381: State should be 'DE', not 'ME'
+2800, 2805: State should be 'MS', not 'OR', and state code should be 46, not 72
+4810, 5245: ID should be 41111, not 20146
+4322, 4754, 5184: State should be 'MS', not 'RI', and state code should be 46, not 05
+4164, 4601, 5025, 5225: State should be 'OR', not 'AL'
+
