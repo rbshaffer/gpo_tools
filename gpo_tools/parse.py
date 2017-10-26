@@ -1,6 +1,6 @@
-import cStringIO
 import codecs
 import csv
+import io
 import os
 import re
 import string
@@ -60,8 +60,8 @@ class Parser:
 
         # select ID values from the database.
         if not id_values:
-            confirmation = input('No ID values were given, so all IDs in the database will be processed. '
-                                 'Proceed y/(n)?')
+            confirmation = eval(input('No ID values were given, so all IDs in the database will be processed. '
+                                      'Proceed y/(n)?'))
             if confirmation == 'y':
                 cur.execute('select id from hearings')
                 self.id_values = [r[0] for r in cur.fetchall()]
@@ -104,7 +104,7 @@ class Parser:
                                           member_table=self.member_table).parsed
                     output.append(parsed)
                 else:
-                    print ' Warning: id {} not found!'.format(id_to_parse)
+                    print((' Warning: id {} not found!'.format(id_to_parse)))
 
             # Returned value records whether the file was actually parsed.
             return output
@@ -114,14 +114,14 @@ class Parser:
         # if n_ids is reasonably large (say >100), parallelize; if not, just do in serial
         if n_ids > 100:
             to_analyze = [{'con': psycopg2.connect(**self.credentials),
-                           'id_inds': range(i * n_ids / n_cores, (i + 1) * n_ids / n_cores)}
+                           'id_inds': list(range(int(i * n_ids / n_cores), int((i + 1) * n_ids / n_cores)))}
                           for i in range(n_cores)]
 
             self.results = [r for r in pprocess.pmap(parse, to_analyze, limit=n_cores)]
             self.results = list(chain(*self.results))
         else:
             con = psycopg2.connect(**self.credentials)
-            self.results = parse({'con': con, 'id_inds': range(len(self.id_values))})
+            self.results = parse({'con': con, 'id_inds': list(range(len(self.id_values)))})
 
     def create_dataset(self, out_dir, out_name='corpus', min_token_length=3, min_doc_length=5, min_dic_count=5,
                        additional_meta=None, additional_meta_labels=None):
@@ -150,6 +150,7 @@ class Parser:
 
         csv.field_size_limit(sys.maxsize)
         stop_list = stopwords.words('english')
+        trans_table = str.maketrans(dict.fromkeys(string.punctuation))
 
         documents = []
         corpus = []
@@ -162,13 +163,13 @@ class Parser:
         # Preprocess, part 1. Documents are lower-cased, punctuation is stripped, words shorter than the cutoff are
         # dropped, stopwords are dropped. After preprocessing, documents shorter than the cutoff are dropped
         if not self.results:
-            print 'No parsed results found, so no processing will be done.'
+            print('No parsed results found, so no processing will be done.')
         else:
             for i, content in enumerate(self.results):
                 if len(content) > 1:
-                    print i, content[0]['jacket']
+                    print((i, content[0]['jacket']))
                     for row in content:
-                        doc = [w for w in row['cleaned'].lower().translate(None, string.punctuation).split()
+                        doc = [w for w in row['cleaned'].lower().translate(trans_table).split()
                                if len(w) > min_token_length and w not in stop_list]
 
                         if len(doc) > min_doc_length:
@@ -183,7 +184,7 @@ class Parser:
             dic = corpora.Dictionary(documents)
             dic.filter_extremes(no_below=min_dic_count, no_above=1)
             dic.compactify()
-            print dic
+            print(dic)
 
             keep = []
             bow_list = []
@@ -263,18 +264,18 @@ class ParseHearing:
 
             # If a committee name is missing from the committee_data.csv file, output a warning and skip the file
             if any(meta_chamber + '-' + c not in self.committee_data for c in self.entry['committees']) is True:
-                print 'Warning! One of the following committees is missing from the committee data file: '
+                print('Warning! One of the following committees is missing from the committee data file: ')
 
                 for c in self.entry['committees']:
-                    print meta_chamber, c
+                    print((meta_chamber, c))
 
-                print '--------'
-                x = raw_input('')
+                print('--------')
+                x = eval(input(''))
                 if x:
                     raise
 
             else:
-                print 'assigning metadata'
+                print('assigning metadata')
                 self._assign_metadata()
 
         else:
@@ -282,7 +283,7 @@ class ParseHearing:
             self.statement_cutpoints = []
             self.parsed = []
 
-        print self.entry['id']
+        print((self.entry['id']))
 
     def _name_search(self, name_string):
         """ Helper function, which sorts through the hearing text and finds all names that start statements. """
@@ -335,7 +336,7 @@ class ParseHearing:
         elif len(openings) < len(closings):
             openings += closings[len(openings):]
 
-        return zip(openings, closings)
+        return list(zip(openings, closings))
 
     def _find_statements(self):
         """
@@ -407,14 +408,14 @@ class ParseHearing:
 
             return name_str, state_str
 
-        states_long = [u'alabama', u'alaska', u'arizona', u'arkansas', u'california', u'colorado', u'connecticut',
-                       u'delaware', u'district of columbia', u'florida', u'georgia', u'hawaii', u'idaho', u'illinois',
-                       u'indiana', u'iowa', u'kansas', u'kentucky', u'louisiana', u'maine', u'maryland',
-                       u'massachusetts', u'michigan', u'minnesota', u'mississippi', u'missouri', u'montana',
-                       u'nebraska', u'nevada', u'new hampshire', u'new jersey', u'new mexico', u'new york',
-                       u'north carolina', u'north dakota', u'ohio', u'oklahoma', u'oregon', u'pennsylvania',
-                       u'rhode island', u'south carolina', u'south dakota', u'tennessee', u'texas', u'utah', u'vermont',
-                       u'virginia', u'washington', u'west virginia', u'wisconsin', u'wyoming']
+        states_long = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut',
+                       'delaware', 'district of columbia', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois',
+                       'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland',
+                       'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana',
+                       'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york',
+                       'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+                       'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont',
+                       'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming']
 
         output = []
 
@@ -483,7 +484,7 @@ class ParseHearing:
 
             name_string = re.sub('\[.*?\]', '', name_string)
             name_string = re.sub('^\s*|\s*$', '', name_string)
-            name_string = name_string.translate(None, punctuation_list)
+            name_string = name_string.translate(str.maketrans(dict.fromkeys(punctuation_list)))
             name_string = name_string.strip()
 
             return name_string
@@ -526,19 +527,21 @@ class ParseHearing:
             else:
                 return None
 
-        states_long = [u'alabama', u'alaska', u'arizona', u'arkansas', u'california', u'colorado', u'connecticut',
-                       u'delaware', u'district of columbia', u'florida', u'georgia', u'hawaii', u'idaho', u'illinois',
-                       u'indiana', u'iowa', u'kansas', u'kentucky', u'louisiana', u'maine', u'maryland',
-                       u'massachusetts', u'michigan', u'minnesota', u'mississippi', u'missouri', u'montana',
-                       u'nebraska', u'nevada', u'new hampshire', u'new jersey', u'new mexico', u'new york',
-                       u'north carolina', u'north dakota', u'ohio', u'oklahoma', u'oregon', u'pennsylvania',
-                       u'rhode island', u'south carolina', u'south dakota', u'tennessee', u'texas', u'utah', u'vermont',
-                       u'virginia', u'washington', u'west virginia', u'wisconsin', u'wyoming']
+        trans_table = str.maketrans(dict.fromkeys(punctuation))
 
-        states_abbrev = [u'AL', u'AK', u'AZ', u'AR', u'CA', u'CO', u'CT', u'DE', u'DC', u'FL', u'GA', u'HI', u'ID',
-                         u'IL', u'IN', u'IA', u'KS', u'KY', u'LA', u'ME', u'MD', u'MA', u'MI', u'MN', u'MS', u'MO',
-                         u'MT', u'NE', u'NV', u'NH', u'NJ', u'NM', u'NY', u'NC', u'ND', u'OH', u'OK', u'OR', u'PA',
-                         u'RI', u'SC', u'SD', u'TN', u'TX', u'UT', u'VT', u'VA', u'WA', u'WV', u'WI', u'WY']
+        states_long = ['alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut',
+                       'delaware', 'district of columbia', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois',
+                       'indiana', 'iowa', 'kansas', 'kentucky', 'louisiana', 'maine', 'maryland',
+                       'massachusetts', 'michigan', 'minnesota', 'mississippi', 'missouri', 'montana',
+                       'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico', 'new york',
+                       'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+                       'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont',
+                       'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming']
+
+        states_abbrev = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID',
+                         'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO',
+                         'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA',
+                         'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
 
         chair = find_chair()
         present_members = find_member_list()
@@ -570,7 +573,7 @@ class ParseHearing:
 
             member_table_matches = [n_tuple for n_tuple in self.member_table
                                     if any([re.sub('\s|jr\.?', '',
-                                                   str(name_last).lower()).translate(None, punctuation) ==
+                                                   str(name_last).lower()).translate(trans_table) ==
                                             re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
                                     and congress in self.member_table[n_tuple]
                                     and any([c in self.member_table[n_tuple][congress] for c in committees]) is True]
@@ -582,13 +585,13 @@ class ParseHearing:
 
             # Same process for witnesses
             witness_name_matches = [n for n in self.entry['witness_meta']
-                                    if name_last.lower().translate(None, punctuation)
-                                    in str(n).lower().translate(None, punctuation)]
+                                    if name_last.lower().translate(trans_table)
+                                    in str(n).lower().translate(trans_table)]
 
             # Same process for "guest" members who happen to be present at that hearing, matching on Congress and
             # list of members in the present_members list
             guest_matches = [n_tuple for n_tuple in self.member_table
-                             if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+                             if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(trans_table) ==
                                      re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
                              and hearing_chamber in self.member_table[n_tuple]['Chamber']
                              and congress in self.member_table[n_tuple]
@@ -599,7 +602,7 @@ class ParseHearing:
             if len(member_table_matches) == 1:
                 name_full = member_table_matches[0]
 
-                first_committee = self.member_table[name_full][congress].keys()[0]
+                first_committee = list(self.member_table[name_full][congress].keys())[0]
                 party = self.member_table[name_full][congress][first_committee]['Party']
 
                 member_id = self.member_table[name_full]['id']
@@ -634,7 +637,7 @@ class ParseHearing:
                 name_full = guest_matches[0]
                 member_id = self.member_table[guest_matches[0]]['id']
 
-                first_committee = self.member_table[guest_matches[0]][congress].keys()[0]
+                first_committee = list(self.member_table[guest_matches[0]][congress].keys())[0]
                 party = self.member_table[guest_matches[0]][congress][first_committee]['Party']
                 person_chamber = self.member_table[guest_matches[0]][congress][first_committee]['Chamber']
 
@@ -646,7 +649,7 @@ class ParseHearing:
             # name who served on the given committee in the given Congress - if so, take that as a match
             else:
                 rep_list = [n_tuple for n_tuple in self.member_table
-                            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(None, punctuation) ==
+                            if any([re.sub('\s|jr\.?', '', str(name_last).lower()).translate(trans_table) ==
                                     re.sub('\s|jr\.?', '', str(n.split(',')[0]).lower()) for n in n_tuple])
                             and congress in self.member_table[n_tuple]]
 
@@ -717,7 +720,7 @@ class UnicodeWriter:
 
     def __init__(self, f, dialect=csv.excel, encoding="utf-8", **kwds):
         # Redirect output to a queue
-        self.queue = cStringIO.StringIO()
+        self.queue = io.StringIO()
         self.writer = csv.writer(self.queue, dialect=dialect, **kwds)
         self.stream = f
         self.encoder = codecs.getincrementalencoder(encoding)()

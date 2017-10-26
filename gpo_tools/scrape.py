@@ -1,5 +1,5 @@
 import re
-from urllib2 import urlopen
+from urllib.request import urlopen
 
 import psycopg2
 from bs4 import BeautifulSoup
@@ -74,13 +74,13 @@ class Scraper:
 
             if old_links:
                 for link in old_links:
-                    print link
+                    print(link)
                     if link.get('onclick') is not None and 'Browse More Information' in link.get('onclick'):
                         meta_url = 'http://www.gpo.gov/fdsys/search/pagedetails.action?' + \
                             re.search('browsePath.*?(?=\')', link.get('onclick')).group(0)
 
                         if meta_url not in self.searched:
-                            print 'Saving:' + meta_url
+                            print(('Saving:' + meta_url))
 
                             self._save_data(meta_url)
                             self.searched.append(meta_url)
@@ -250,7 +250,7 @@ class Scraper:
                            Json(witness_meta),
                            Json(member_meta)))
         except IntegrityError:
-            print 'Duplicate key. Link not included.'
+            print('Duplicate key. Link not included.')
             self.con.rollback()
 
     def _update_stewart_meta(self):
@@ -282,7 +282,7 @@ class Scraper:
 
             for row in inputs:
                 name = str(row[3].lower().decode('ascii', errors='ignore'))
-                name = name.translate(None, '!"#$%&\'()*+-./:;<=>?[\\]_`{|}~')
+                name = name.translate(str.maketrans(dict.fromkeys('!"#$%&\'()*+-./:;<=>?[\\]_`{|}~')))
 
                 congress = row[0].lower()
                 committee_code = row[1]
@@ -330,8 +330,8 @@ class Scraper:
         self._execute('DELETE FROM members;')
         member_table = {}
 
-        house_path = input('Path to Stewart\'s House committee membership data (as csv): ')
-        senate_path = input('Path to Stewart\'s Senate committee membership data (as csv): ')
+        house_path = eval(input('Path to Stewart\'s House committee membership data (as csv): '))
+        senate_path = eval(input('Path to Stewart\'s Senate committee membership data (as csv): '))
 
         # Loop through the house and senate assignment files, and save the output.
         with open(house_path, 'rb') as f:
@@ -342,7 +342,7 @@ class Scraper:
         update(house_inputs, member_table, 'HOUSE')
         update(senate_inputs, member_table, 'SENATE')
 
-        for k, v in member_table.iteritems():
+        for k, v in list(member_table.items()):
             self._execute('INSERT INTO members VALUES (%s, %s, %s)', (k, Json(v['Metadata']), Json(v['Membership'])),
                           errors='strict')
 
