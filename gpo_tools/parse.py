@@ -6,7 +6,6 @@ import re
 import string
 import sys
 from datetime import datetime
-from itertools import chain
 from itertools import repeat
 
 import pkg_resources
@@ -80,7 +79,8 @@ class Parser:
 
     def parse_gpo_hearings(self, n_cores=4):
         """ Primary parser function. Wraps and parallelizes methods described elsewhere in this file. """
-        import pprocess
+
+        # import pprocess
 
         def parse(data):
             """
@@ -112,16 +112,20 @@ class Parser:
         n_ids = len(self.id_values)
 
         # if n_ids is reasonably large (say >100), parallelize; if not, just do in serial
-        if n_ids > 100:
-            to_analyze = [{'con': psycopg2.connect(**self.credentials),
-                           'id_inds': list(range(int(i * n_ids / n_cores), int((i + 1) * n_ids / n_cores)))}
-                          for i in range(n_cores)]
+        # disabled for now because pprocess seems to be broken
+        # if n_ids > 100:
+        #     to_analyze = [{'con': psycopg2.connect(**self.credentials),
+        #                    'id_inds': list(range(int(i * n_ids / n_cores), int((i + 1) * n_ids / n_cores)))}
+        #                   for i in range(n_cores)]
+        #
+        #     self.results = [r for r in pprocess.pmap(parse, to_analyze, limit=n_cores)]
+        #     self.results = list(chain(*self.results))
+        # else:
+        #     con = psycopg2.connect(**self.credentials)
+        #     self.results = parse({'con': con, 'id_inds': list(range(len(self.id_values)))})
 
-            self.results = [r for r in pprocess.pmap(parse, to_analyze, limit=n_cores)]
-            self.results = list(chain(*self.results))
-        else:
-            con = psycopg2.connect(**self.credentials)
-            self.results = parse({'con': con, 'id_inds': list(range(len(self.id_values)))})
+        con = psycopg2.connect(**self.credentials)
+        self.results = parse({'con': con, 'id_inds': list(range(len(self.id_values)))})
 
     def create_dataset(self, out_dir, out_name='corpus', min_token_length=3, min_doc_length=5, min_dic_count=5,
                        additional_meta=None, additional_meta_labels=None):
@@ -249,6 +253,8 @@ class ParseHearing:
                          'The Chairwoman', 'Governor', 'Chair', 'The Clerk', 'Clerk', 'Mayor', 'Reverend', 'Justice',
                          'Ambassador', 'Chief']
 
+        self.prefixes += [prefix.upper() for prefix in self.prefixes]
+
         # Constant for performance. Limits how far forward (number of characters) the script will search in order to
         # find certain pieces of information, such as the name of the chair of the committee.
         self.max_search_length = 75000
@@ -258,6 +264,7 @@ class ParseHearing:
 
         # If there's at least one statement identified in the text, start parsing
         if self._name_search(self.entry['transcript']) is not None:
+            print(self._name_search(self.entry['transcript']))
             self.session_cutpoints = self._find_sessions()
             self.statement_cutpoints = self._find_statements()
             self.parsed = self._segment_transcript()
@@ -270,9 +277,6 @@ class ParseHearing:
                     print((meta_chamber, c))
 
                 print('--------')
-                x = eval(input(''))
-                if x:
-                    raise
 
             else:
                 print('assigning metadata')
@@ -290,10 +294,16 @@ class ParseHearing:
         import re
 
         # VERY complicated name regex, which is tough to simplify, since names aren't consistent. Modify with care.
-        matches = re.finditer('(?<= {4})[A-Z][a-z]+(\.)? ([A-Z][A-Za-z\'][-A-Za-z \[\]\']*?)*' +
+        # note additional second part of the regex, which adds an all-caps option for names
+        # second additional part is shortened for performance, since it's a rare case
+        matches = re.finditer('((?<= {4})|(?<=\t))[A-Z][a-z]+(\.)? ([A-Z][A-Za-z\'][-A-Za-z \[\]\']*?)*' +
                               '[A-Z\[\]][-A-Za-z\[\]]{1,100}(?=\.([- ]))' +
-                              '|(?<= {4})Voice(?=\.([- ]))' +
-                              '|(?<= {4})The Chair(man|woman)(?=\.([- ]))', name_string[0:self.max_search_length])
+                              '|((?<= {4})|(?<=\t))[A-Z]+(\.)? [A-Z\[\]][-A-Z\[\]]{1,100}(?=\.([- ]))' +
+                              # '|((?<= {4})|(?<=\t))[A-Z]+(\.)? ' +
+                              # '[A-Z\[\]][-A-Z\[\]]{1,100}(?=\.([- ]))' +
+                              '|((?<= {4})|(?<=\t))Voice(?=\.([- ]))' +
+                              '|((?<= {4})|(?<=\t))The Chair(man|woman)(?=\.([- ]))',
+                              name_string[0:self.max_search_length])
         for i, match in enumerate(matches):
             if match is not None and len(match.group(0).split()) <= 5 and \
                     re.search('^(' + '|'.join(self.prefixes) + ')', match.group(0)) is not None:
@@ -349,7 +359,7 @@ class ParseHearing:
 
         cuts = []
         for opening, closing in self.session_cutpoints:
-            newlines = list(re.finditer('\n+ {4}', self.entry['transcript'][opening:closing]))
+            newlines = list(re.finditer('\n+( {4}|\t)', self.entry['transcript'][opening:closing]))
             for i, nl in enumerate(newlines):
                 if i < len(newlines) - 1:
                     line = self.entry['transcript'][nl.start() + opening:newlines[i + 1].start() + opening]
@@ -497,7 +507,7 @@ class ParseHearing:
             members.
 
             """
-            results = re.finditer(' {4}(Members |Also )?(present[^.]*?:)(.*?)\.[\n\r]',
+            results = re.finditer('( {4}|\t)(Members |Also )?(present[^.]*?:)(.*?)\.[\n\r]',
                                   self.entry['transcript'][0:self.max_search_length], flags=re.I | re.S)
             out = []
             for result in results:
@@ -707,9 +717,9 @@ class ParseHearing:
                 person_chamber = hearing_chamber
 
             self.parsed[i].update(
-                {'name_full': name_full, 'member_id': member_id, 'party': tuple(party), 'majority': majority,
+                {'name_full': name_full, 'member_id': member_id, 'party': (party,), 'majority': majority,
                  'person_chamber': person_chamber, 'party_seniority': party_seniority,
-                 'leadership': leadership, 'committees': tuple(committees)})
+                 'leadership': leadership, 'committees': (committees,)})
 
 
 class UnicodeWriter:
