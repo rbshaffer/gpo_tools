@@ -1,3 +1,4 @@
+import json
 import re
 from urllib.request import urlopen
 
@@ -8,7 +9,8 @@ from psycopg2.extras import Json
 
 
 class Scraper:
-    def __init__(self, db, user, password, host='localhost', update_stewart_meta=False):
+    def __init__(self, db, user, password, api_key, min_congress, max_congress,
+                 host='localhost', update_stewart_meta=False):
         """
         GPO scraper class, which also handles database setup.
         """
@@ -55,40 +57,29 @@ class Scraper:
         self._execute('SELECT url FROM hearings;')
         self.searched = [e[0] for e in self.cur.fetchall()]
 
+        self.api_key = api_key
+        self.congresses = range(int(min_congress), int(max_congress) + 1)
+
     def scrape(self):
         """
-        Scrape data from the GPO website. Loops through the website until all links are exhausted.
+        Scrape data from the GPO website. Loops through the list of results until all pages are exhausted.
         """
-
-        initial_link = 'http://www.gpo.gov/fdsys/browse/collection.action?collectionCode=CHRG'
-
-        new_links = [link for link in BeautifulSoup(urlopen(initial_link), 'lxml').find_all('a')
-                     if link.get('onclick') is not None]
 
         print("Crawling and scraping the GPO website. As pages are scraped, page URLs will be printed in terminal. If "
               "you're running the scraper for the first time, the initial crawl will take some time.")
 
-        while True:
-            old_links = new_links
-            new_links = []
+        results_page = 'https://api.govinfo.gov/collections/CHRG/1776-01-28T20%3A18%3A10Z?offset=0&pageSize=10000&' + \
+                       'congress={1}&api_key={0}'
 
-            if old_links:
-                for link in old_links:
-                    print(link)
-                    if link.get('onclick') is not None and 'Browse More Information' in link.get('onclick'):
-                        meta_url = 'http://www.gpo.gov/fdsys/search/pagedetails.action?' + \
-                            re.search('browsePath.*?(?=\')', link.get('onclick')).group(0)
+        for congress in self.congresses:
+            hearings_list = json.loads(urlopen(results_page.format(self.api_key, congress)).read())
 
-                        if meta_url not in self.searched:
-                            print(('Saving:' + meta_url))
+            for hearing in hearings_list['packages']:
+                if hearing['packageLink'] not in self.searched:
+                    print(hearing['packageLink'])
 
-                            self._save_data(meta_url)
-                            self.searched.append(meta_url)
-
-                    elif link.string is None:
-                        new_links += self._extract_nav(link)
-            else:
-                break
+                    self._save_data(hearing)
+                    self.searched.append(hearing['packageLink'])
 
     def _extract_nav(self, url_element):
         """ Helper function - grabs all unobserved links out of a given HTML element. """
@@ -96,7 +87,6 @@ class Scraper:
         url = 'http://www.gpo.gov' + re.search('(?<=\').*?(?=\')', url_element.get('onclick')).group(0)
 
         if url not in self.searched:
-
             page = urlopen('http://www.gpo.gov' + re.search('(?<=\').*?(?=\')', url_element.get('onclick')).group(0))
 
             soup = BeautifulSoup(page.read(), 'lxml')
@@ -107,7 +97,7 @@ class Scraper:
         else:
             return []
 
-    def _save_data(self, url):
+    def _save_data(self, hearing_json):
         """ Dumps scraped text and metadata to the appropriate location in the document file structure. """
 
         def extract_doc_meta(meta_html):
@@ -213,18 +203,18 @@ class Scraper:
 
             return witness_list
 
-        page = urlopen(url)
-        soup = BeautifulSoup(page.read(), 'lxml')
+        htm_page = 'https://api.govinfo.gov/packages/{1}/htm?api_key={0}'
+        mods_page = 'https://api.govinfo.gov/packages/{1}/mods?api_key={0}'
 
-        meta_link = [l.get('href') for l in soup.find_all('a') if l.string == 'MODS'][0]
-        transcript_link = [l.get('href') for l in soup.find_all('a') if l.string == 'Text'][0]
+        hearing_id = hearing_json['packageId']
 
-        transcript = urlopen(transcript_link).read()
+        transcript = urlopen(htm_page.format(self.api_key, hearing_id)).read()
+        meta = urlopen(mods_page.format(self.api_key, hearing_id)).read()
 
-        transcript = re.sub('\x00', '', transcript)
+        transcript = re.sub('\x00', '', transcript.decode('utf8'))
+        meta_soup = BeautifulSoup(meta)
 
-        meta_page = urlopen(meta_link)
-        meta_soup = BeautifulSoup(meta_page.read(), 'lxml')
+        url = hearing_json['packageLink']
 
         # Metadata is divided into three pieces: hearing info, member info, and witness info.
         # See functions for details on each of these metadata elements.
@@ -281,7 +271,7 @@ class Scraper:
                 return meta_entry
 
             for row in inputs:
-                name = str(row[3].lower().decode('ascii', errors='ignore'))
+                name = str(row[3].lower())
                 name = name.translate(str.maketrans(dict.fromkeys('!"#$%&\'()*+-./:;<=>?[\\]_`{|}~')))
 
                 congress = row[0].lower()
@@ -334,9 +324,9 @@ class Scraper:
         senate_path = eval(input('Path to Stewart\'s Senate committee membership data (as csv): '))
 
         # Loop through the house and senate assignment files, and save the output.
-        with open(house_path, 'rb') as f:
+        with open(house_path, 'r', encoding='ascii', errors='ignore') as f:
             house_inputs = list(csv.reader(f))[2:]
-        with open(senate_path, 'rb') as f:
+        with open(senate_path, 'r', encoding='ascii', errors='ignore') as f:
             senate_inputs = list(csv.reader(f))[2:]
 
         update(house_inputs, member_table, 'HOUSE')

@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='gpo_tools',
-    version='1.0',
+    version='1.1',
     packages=['gpo_tools'],
     requires=['bs4', 'pprocess', 'gensim', 'nltk', 'psycopg2'],
     url='https://github.com/rbshaffer/gpo_tools',
