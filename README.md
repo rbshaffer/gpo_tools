@@ -1,8 +1,14 @@
 # gpo_tools
-The Government Publishing Office (GPO)'s [congressional hearings](https://www.gpo.gov/fdsys/browse/collection.action?collectionCode=CHRG) dataset offers an extensive collection of hearing texts and metadata. Unfortunately, the GPO's website lacks batch-downloading and querying tools, and hearing transcripts offered by the site lack embedded metadata denoting statement breakpoints or speaker-level information (e.g. political party or committee seniority). As a result, analyzing the GPO's data *en masse* is impractical.
-
-The **gpo_tools** library addresses both of these issues. The library has two primary classes:
- - ``gpo_tools.scrape.Scraper`` downloads data from GPO's individual hearing pages, and saves information to a PostgreSQL database for convenient querying and commpact storage. 
+The Government Publishing Office (GPO)'s 
+[Congressional hearings collection](https://www.govinfo.gov/app/collection/CHRG) dataset (and accopanying 
+[API](https://api.govinfo.gov/docs/)) offers an extensive array of hearing texts and metadata. Unfortunately, hearing 
+transcripts offered by the site are offered as plain, raw text, with no embedded metadata denoting speaking turns or 
+speaker-level information (e.g. political party or committee seniority). As a result, it is difficult to extract useful 
+information from these texts at scale.
+ 
+The **gpo_tools** library addresses this issue by offering a series of parsing and metadata management tools. 
+The library has two primary classes:
+ - ``gpo_tools.scrape.Scraper`` streamlines API queries and saves information to a PostgreSQL database for convenient querying and compact storage. 
  - ``gpo_tools.parse.Parser`` segments hearing transcripts into individual statements and, when possible, assigns speaker-level meta to each statement.
  
 Combining these functions gives a dataset of congressional hearing statements suitable for large-scale content analysis. An example output line reads as follows:
@@ -25,7 +31,8 @@ Combining these functions gives a dataset of congressional hearing statements su
     'party': (u'R',),
     'party_seniority': u'6',
     'person_chamber': u'HOUSE',
-    'state': None
+    'state': None,
+    'date': '05-20-2004'
   },
   {
     'cleaned': "I thank you, Mr. Chairman, for calling this \nhearing on a very important topic...",
@@ -36,16 +43,25 @@ Combining these functions gives a dataset of congressional hearing statements su
 ```
  
 ## Scraping
-### Versioning
-``gpo_tools`` is currently built for Python 3.x. 
+### Prerequisites
+Before starting, you will need: 
+ - A Python 3.6 installation
+ - An empty PostgreSQL datbase
+ - An API key from the [GPO API](https://api.data.gov/signup/)
+ - [psycopg2](https://pypi.org/project/psycopg2/)
 
 ### Getting Started
 For first-time users, initialize a ``Scraper`` instance as follows:
 ```
 >> from gpo_tools.scrape import Scraper
->> scraper = Scraper(db = 'your_db', user = 'your_username', password = 'your_password', 
+>> scraper = Scraper(min_congress = '111', max_congress = '112', api_key = api_key, 
+                     db = 'your_db', user = 'your_username', password = 'your_password', 
                      host = 'localhost', update_stewart_meta = True)
 ```
+``min_congress`` and ``max_congress`` should give the first and last Congress from which you want to download data. 
+Hearing texts are available through the GPO's website from as early as the 85th Congress, but coverage only becomes 
+reasonably comprehensive starting around 2000. ``api_key`` should contain your [GPO API](https://api.data.gov/signup/) 
+key.  
 
 ``db``, ``user``, and ``password`` should give valid credentials to an empty, preestablished PostgreSQL database, created through the method of your chosing and hosted at ``host`` (``'localhost'`` for most users). If PostgreSQL is not already available on your machine, installation instructions for OSX and Windows are available [here](https://www.postgresql.org/download/macosx/) and [here](https://www.postgresql.org/download/windows/). If you're not familiar with PostgreSQL, the [createdb](https://www.postgresql.org/docs/9.1/static/app-createdb.html) command line utility is a good option for generating an empty database.
 
@@ -86,10 +102,8 @@ ID values specified in this fashion should correspond to the jacket numbers used
 ### Processing
 To run the parser, simply call the wrapper function:
 ```
->> parser.parse_gpo_hearings(n_cores=4)
+>> parser.parse_gpo_hearings()
 ```
-By default, the parser function will run in parallel. This option can be disabled by setting ``ncores = 1``. 
-
 Outputs will be saved to the ``parser.results`` slot, which can be saved to disk using the method of your choice. 
 
 ## Citation

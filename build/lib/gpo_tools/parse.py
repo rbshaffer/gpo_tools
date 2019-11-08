@@ -171,7 +171,6 @@ class Parser:
         else:
             for i, content in enumerate(self.results):
                 if len(content) > 1:
-                    print((i, content[0]['jacket']))
                     for row in content:
                         doc = [w for w in row['cleaned'].lower().translate(trans_table).split()
                                if len(w) > min_token_length and w not in stop_list]
@@ -188,7 +187,6 @@ class Parser:
             dic = corpora.Dictionary(documents)
             dic.filter_extremes(no_below=min_dic_count, no_above=1)
             dic.compactify()
-            print(dic)
 
             keep = []
             bow_list = []
@@ -221,7 +219,7 @@ class ParseHearing:
     def __init__(self, entry, committee_data, member_table):
         """
         Class for parsing hearings. This class is not intended to be called directly; rather, it is only meant to be
-        called in the parallelized parse() method of BuildDatabase. The parser breaks hearings into statements,
+        called in the parse() method of BuildDatabase. The parser breaks hearings into statements,
         links the speaker of each statement to metadata (wherever possible), and outputs a flat file, with one
         statement per line.
         
@@ -262,9 +260,10 @@ class ParseHearing:
 
         meta_chamber = self.entry['chamber']
 
+        print(self.entry['id'])
+
         # If there's at least one statement identified in the text, start parsing
         if self._name_search(self.entry['transcript']) is not None:
-            print(self._name_search(self.entry['transcript']))
             self.session_cutpoints = self._find_sessions()
             self.statement_cutpoints = self._find_statements()
             self.parsed = self._segment_transcript()
@@ -287,8 +286,6 @@ class ParseHearing:
             self.statement_cutpoints = []
             self.parsed = []
 
-        print((self.entry['id']))
-
     def _name_search(self, name_string):
         """ Helper function, which sorts through the hearing text and finds all names that start statements. """
         import re
@@ -306,7 +303,7 @@ class ParseHearing:
                               name_string[0:self.max_search_length])
         for i, match in enumerate(matches):
             if match is not None and len(match.group(0).split()) <= 5 and \
-                            re.search('^(' + '|'.join(self.prefixes) + ')', match.group(0)) is not None:
+                    re.search('^(' + '|'.join(self.prefixes) + ')', match.group(0)) is not None:
 
                 return match
 
@@ -614,6 +611,7 @@ class ParseHearing:
 
                 first_committee = list(self.member_table[name_full][congress].keys())[0]
                 party = self.member_table[name_full][congress][first_committee]['Party']
+                state = self.member_table[name_full]['State']
 
                 member_id = self.member_table[name_full]['id']
                 current_committees = [c for c in committees if c in self.member_table[name_full][congress]]
@@ -637,6 +635,7 @@ class ParseHearing:
                 name_full = (witness_name_matches[0],)
                 member_id = 'NA'
                 party = 'WITNESS'
+                state  = 'NA'
                 majority = 'NA'
                 party_seniority = 'NA'
                 leadership = 'NA'
@@ -650,6 +649,7 @@ class ParseHearing:
                 first_committee = list(self.member_table[guest_matches[0]][congress].keys())[0]
                 party = self.member_table[guest_matches[0]][congress][first_committee]['Party']
                 person_chamber = self.member_table[guest_matches[0]][congress][first_committee]['Chamber']
+                state = self.member_table[name_full]['State']
 
                 majority = 'NA'
                 party_seniority = 'NA'
@@ -678,6 +678,7 @@ class ParseHearing:
                             current_committees = [c for c in committees
                                                   if c in self.member_table[name_full][congress]]
                             person_chamber = self.member_table[name_full]['Chamber']
+                            state = self.member_table[name_full]['State']
 
                             if len(current_committees) == 1:
                                 c = current_committees[0]
@@ -693,6 +694,7 @@ class ParseHearing:
                             name_full = ('NA',)
                             member_id = 'NA'
                             party = 'NA'
+                            state = 'NA'
                             majority = 'NA'
                             party_seniority = 'NA'
                             leadership = 'NA'
@@ -701,6 +703,7 @@ class ParseHearing:
                         name_full = ('NA',)
                         member_id = 'NA'
                         party = 'NA'
+                        state = 'NA'
                         majority = 'NA'
                         party_seniority = 'NA'
                         leadership = 'NA'
@@ -709,6 +712,7 @@ class ParseHearing:
                     name_full = ('NA',)
                     member_id = 'NA'
                     party = 'NA'
+                    state = 'NA'
                     majority = 'NA'
                     party_seniority = 'NA'
                     leadership = 'NA'
@@ -719,7 +723,7 @@ class ParseHearing:
             self.parsed[i].update(
                 {'name_full': name_full, 'member_id': member_id, 'party': (party,), 'majority': majority,
                  'person_chamber': person_chamber, 'party_seniority': party_seniority,
-                 'leadership': leadership, 'committees': (committees,)})
+                 'leadership': leadership, 'committees': (committees,), 'state': state})
 
 
 class UnicodeWriter:
