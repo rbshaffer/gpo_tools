@@ -443,7 +443,9 @@ class ParseHearing:
                     hearing_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
                                                 self.entry['committees']]))
 
-                    if len(hearing_chamber) > 1:
+                    if len(hearing_chamber) == 0:
+                        hearing_chamber = None
+                    elif len(hearing_chamber) > 1:
                         hearing_chamber = 'JOINT'
                     else:
                         hearing_chamber = hearing_chamber[0]
