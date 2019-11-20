@@ -439,9 +439,21 @@ class ParseHearing:
 
                 # if committee data is given, get formal committee names and their chambers
                 if self.committee_data:
-                    committees = [self.committee_data[meta_chamber + '-' + c]['Code'] for c in self.entry['committees']]
-                    hearing_chamber = list(set([self.committee_data[meta_chamber + '-' + c]['Chamber'] for c in
-                                                self.entry['committees']]))
+                    committees = []
+                    hearing_chamber = []
+
+                    # error handler for committee metadata
+                    for c in self.entry['committees']:
+                        chamber_committee = meta_chamber + '-' + c
+
+                        try:
+                            committees.append(self.committee_data[chamber_committee]['Code'])
+                            hearing_chamber.append(self.committee_data[chamber_committee]['Chamber'])
+
+                        except KeyError:
+                            pass
+
+                    hearing_chamber = list(set(hearing_chamber))
 
                     if len(hearing_chamber) == 0:
                         hearing_chamber = None
