@@ -68,7 +68,7 @@ class Scraper:
         print("Crawling and scraping the GPO website. As pages are scraped, page URLs will be printed in terminal. If "
               "you're running the scraper for the first time, the initial crawl will take some time.")
 
-        results_page = 'https://api.govinfo.gov/collections/CHRG/1776-01-28T20%3A18%3A10Z?offset=0&pageSize=10000&' + \
+        results_page = 'https://api.govinfo.gov/collections/CHRG/1776-01-28T20%3A18%3A10Z?offset=0&pageSize=100&' + \
                        'congress={1}&api_key={0}'
 
         for congress in self.congresses:
