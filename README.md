@@ -49,6 +49,7 @@ Before starting, you will need:
  - An empty PostgreSQL datbase
  - An API key from the [GPO API](https://api.data.gov/signup/)
  - [psycopg2](https://pypi.org/project/psycopg2/)
+ - [gensim](https://pypi.org/project/gensim/)
 
 ### Getting Started
 For first-time users, initialize a ``Scraper`` instance as follows:

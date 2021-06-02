@@ -1,6 +1,7 @@
 import json
 import re
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 import psycopg2
 from bs4 import BeautifulSoup
@@ -124,7 +125,10 @@ class Scraper:
 
             # gathering a few unusual variables
             uri = [link.string for link in meta_html.find_all('identifier') if link.get('type') == 'uri'][0]
-            congress = re.search('(?<=-)[0-9]+', uri).group(0)
+            
+            congress = re.search('(?<=-)[0-9]+', uri)
+            if congress:
+                congress = congress.group(0)
 
             committee_meta = meta_html.find_all('congcommittee')
             committee_names = []
@@ -167,6 +171,9 @@ class Scraper:
                                'sudoc': locate_string('classification'),
                                'Number': numbers}
 
+            if re.search('[0-9]{4}-[0-9]{2}-[0-9]{2}', meta_dictionary['Date']) is None:
+                meta_dictionary['Date'] = None
+                
             return meta_dictionary
 
         def extract_member_meta(meta_html):
@@ -184,8 +191,19 @@ class Scraper:
                 bio_id = member.get('bioguideid')
 
                 name_elements = member.find_all('name')
-                name_parsed = [link.string for link in name_elements if link.get('type') == 'parsed'][0]
-                state_long = re.search('(?<= of ).*', name_parsed).group(0)
+                name_parsed = [link.string for link in name_elements if link.get('type') == 'parsed']
+                if len(name_parsed) > 0:
+                    name_parsed = name_parsed[0]
+                    state_long = re.search('(?<= of ).*', name_parsed)
+                    
+                    if state_long:
+                        state_long = state_long[0]
+                        
+                else:
+                    name_parsed = [link.string for link in name_elements if link.get('type') == 'authority-fnf'][0]
+                    state_long = ''
+                
+                
 
                 member_dictionary[name_parsed] = {'Name': name_parsed,
                                                   'State_Short': state_short,
@@ -208,21 +226,25 @@ class Scraper:
 
         hearing_id = hearing_json['packageId']
 
-        transcript = urlopen(htm_page.format(self.api_key, hearing_id)).read()
+        try:
+            transcript = urlopen(htm_page.format(self.api_key, hearing_id)).read()
+            transcript = re.sub('\x00', '', transcript.decode('utf8'))
+            
+        except HTTPError:
+            transcript = ''
+            
         meta = urlopen(mods_page.format(self.api_key, hearing_id)).read()
-
-        transcript = re.sub('\x00', '', transcript.decode('utf8'))
         meta_soup = BeautifulSoup(meta)
 
         url = hearing_json['packageLink']
 
         # Metadata is divided into three pieces: hearing info, member info, and witness info.
         # See functions for details on each of these metadata elements.
-
+           
         hearing_meta = extract_doc_meta(meta_soup)
         witness_meta = extract_witness_meta(meta_soup)
         member_meta = extract_member_meta(meta_soup)
-
+        
         try:
             self._execute('INSERT INTO hearings VALUES (' + ','.join(['%s'] * 14) + ')',
                           (hearing_meta['Identifier'],
