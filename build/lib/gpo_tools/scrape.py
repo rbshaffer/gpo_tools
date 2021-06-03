@@ -71,16 +71,22 @@ class Scraper:
 
         results_page = 'https://api.govinfo.gov/collections/CHRG/1776-01-28T20%3A18%3A10Z?offset=0&pageSize=100&' + \
                        'congress={1}&api_key={0}'
-
         for congress in self.congresses:
-            hearings_list = json.loads(urlopen(results_page.format(self.api_key, congress)).read())
+            page = results_page.format(self.api_key, congress)
+            while True:    
+                print(page)
+                hearings_list = json.loads(urlopen(page).read())
 
-            for hearing in hearings_list['packages']:
-                if hearing['packageLink'] not in self.searched:
-                    print(hearing['packageLink'])
+                for hearing in hearings_list['packages']:
+                    if hearing['packageLink'] not in self.searched:
+                        print(hearing['packageLink'])
 
-                    self._save_data(hearing)
-                    self.searched.append(hearing['packageLink'])
+                        self._save_data(hearing)
+                        self.searched.append(hearing['packageLink'])
+                            
+                page = hearings_list['nextPage']
+                if not page:
+                    break
 
     def _extract_nav(self, url_element):
         """ Helper function - grabs all unobserved links out of a given HTML element. """
